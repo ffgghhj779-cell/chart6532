@@ -83,8 +83,7 @@ const fetchTwelveDataHistory = async (symbol: string, timeframe: string) => {
 };
 
 const getHistoricalData = async (symbol: SymbolType, timeframe: string) => {
-  // 1. Check Supabase Cache First
-  const { data: cachedData, error } = await supabase
+  const { data: cachedData } = await supabase
     .from('historical_candles')
     .select('*')
     .eq('symbol', symbol)
@@ -103,7 +102,6 @@ const getHistoricalData = async (symbol: SymbolType, timeframe: string) => {
     }));
   }
 
-  // 2. If not cached or insufficient data, fetch from REST API
   let fetchedData: any[] = [];
   try {
     if (symbol === 'BTCUSDT') {
@@ -131,20 +129,10 @@ const getHistoricalData = async (symbol: SymbolType, timeframe: string) => {
     }
   }
 
-  // 3. Silently cache to Supabase in background
   if (fetchedData.length > 0) {
     const insertPayload = fetchedData.map(d => ({
-      symbol,
-      timeframe,
-      timestamp: d.time,
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-      volume: d.volume || 0
+      symbol, timeframe, timestamp: d.time, open: d.open, high: d.high, low: d.low, close: d.close, volume: d.volume || 0
     }));
-
-    // Perform insert without blocking the UI rendering
     supabase.from('historical_candles').insert(insertPayload).then(({ error }) => {
       if (error) console.error('Failed to cache to Supabase:', error);
     });
@@ -173,7 +161,6 @@ export const LiveFinancialChart: React.FC = () => {
   const [timeframe, setTimeframe] = useState<string>('30M');
   const [connectionStatus, setConnectionStatus] = useState<'real' | 'simulated' | 'loading'>('loading');
 
-  // We keep levels in ref to be able to access them in ws closure without dependency array mess
   const levelsRef = useRef<ChartLevels>(GOLD_LEVELS);
   const startPriceRef = useRef<number>(0);
 
@@ -181,9 +168,7 @@ export const LiveFinancialChart: React.FC = () => {
     levelsRef.current = levels;
     ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4'].forEach((lvl) => {
       const el = levelsDisplayRefs.current[lvl];
-      if (el) {
-        el.textContent = levels[lvl as keyof ChartLevels].toFixed(2);
-      }
+      if (el) el.textContent = levels[lvl as keyof ChartLevels].toFixed(2);
     });
   }, []);
 
@@ -195,14 +180,7 @@ export const LiveFinancialChart: React.FC = () => {
     priceLinesRef.current = [];
 
     const addLine = (price: number, color: string, title: string, style: number = 2) => {
-      const line = series.createPriceLine({
-        price,
-        color,
-        lineWidth: 1,
-        lineStyle: style,
-        axisLabelVisible: true,
-        title,
-      });
+      const line = series.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title });
       priceLinesRef.current.push(line);
     };
 
@@ -210,7 +188,7 @@ export const LiveFinancialChart: React.FC = () => {
     addLine(levels.r3, '#ef5350', 'R3', 3);
     addLine(levels.r2, '#ef5350', 'R2', 3);
     addLine(levels.r1, '#ef5350', 'R1', 3);
-    addLine(levels.pivot, '#ffffff', 'PIVOT', 1); // Premium white pivot line
+    addLine(levels.pivot, '#ffffff', 'PIVOT', 1);
     addLine(levels.s1, '#26a69a', 'S1', 3);
     addLine(levels.s2, '#26a69a', 'S2', 3);
     addLine(levels.s3, '#26a69a', 'S3', 3);
@@ -228,66 +206,39 @@ export const LiveFinancialChart: React.FC = () => {
         fontFamily: "'Inter', sans-serif",
       },
       grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.02)', style: 4 }, // Dotted, very subtle
+        vertLines: { color: 'rgba(255, 255, 255, 0.02)', style: 4 },
         horzLines: { color: 'rgba(255, 255, 255, 0.02)', style: 4 },
       },
       watermark: {
-        visible: true,
-        fontSize: 140,
-        horzAlign: 'center',
-        vertAlign: 'center',
-        color: 'rgba(255, 255, 255, 0.015)', // Ultra-subtle watermark
-        text: 'XAU/USD',
-        fontFamily: "'Inter', sans-serif",
+        visible: true, fontSize: 100, horzAlign: 'center', vertAlign: 'center',
+        color: 'rgba(255, 255, 255, 0.015)', text: 'XAU/USD', fontFamily: "'Inter', sans-serif",
       },
       crosshair: {
         mode: 1,
         vertLine: { color: 'rgba(255, 255, 255, 0.15)', width: 1, style: 3, labelBackgroundColor: '#1e222d' },
         horzLine: { color: 'rgba(255, 255, 255, 0.15)', width: 1, style: 3, labelBackgroundColor: '#1e222d' },
       },
-      timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.05)',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.05)',
-        autoScale: true,
-      },
+      timeScale: { borderColor: 'rgba(255, 255, 255, 0.05)', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.05)', autoScale: true },
+      // Elite Mobile Performance Configs
+      handleScroll: { pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      kineticScroll: { touch: true, mouse: true },
     });
 
     chartRef.current = chart;
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderVisible: false,
-      wickUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-      priceFormat: {
-        type: 'price',
-        precision: 2,
-        minMove: 0.01,
-      },
+      upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
+      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
-
     seriesRef.current = candlestickSeries;
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
-      color: '#26a69a',
-      priceFormat: {
-        type: 'volume',
-      },
-      priceScaleId: '', // Overlay series
+      color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: '',
     });
-    
-    chart.priceScale('').applyOptions({
-      scaleMargins: {
-        top: 0.85, 
-        bottom: 0,
-      },
-    });
-
+    chart.priceScale('').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     volumeSeriesRef.current = volumeSeries;
 
     chart.subscribeCrosshairMove((param) => {
@@ -295,42 +246,35 @@ export const LiveFinancialChart: React.FC = () => {
       const tooltip = tooltipRef.current;
       
       if (
-        param.point === undefined ||
-        !param.time ||
-        param.point.x < 0 ||
-        param.point.x > chartContainerRef.current.clientWidth ||
-        param.point.y < 0 ||
-        param.point.y > chartContainerRef.current.clientHeight
+        param.point === undefined || !param.time ||
+        param.point.x < 0 || param.point.x > chartContainerRef.current.clientWidth ||
+        param.point.y < 0 || param.point.y > chartContainerRef.current.clientHeight
       ) {
         tooltip.style.opacity = '0';
       } else {
         const data = param.seriesData.get(seriesRef.current) as CandlestickData;
         if (data) {
           tooltip.style.opacity = '1';
-          const tooltipWidth = 150;
-          const tooltipHeight = 150;
-          let left = param.point.x + 20;
-          let top = param.point.y + 20;
+          const tooltipWidth = 140;
+          const tooltipHeight = 140;
+          let left = param.point.x + 15;
+          let top = param.point.y + 15;
           
-          if (left + tooltipWidth > chartContainerRef.current.clientWidth) {
-            left = param.point.x - tooltipWidth - 20;
-          }
-          if (top + tooltipHeight > chartContainerRef.current.clientHeight) {
-            top = param.point.y - tooltipHeight - 20;
-          }
+          if (left + tooltipWidth > chartContainerRef.current.clientWidth) left = param.point.x - tooltipWidth - 15;
+          if (top + tooltipHeight > chartContainerRef.current.clientHeight) top = param.point.y - tooltipHeight - 15;
           
-          // Fluid Transform animation instead of layout-thrashing left/top
-          tooltip.style.transform = `translate(${left}px, ${top}px)`;
+          // Ultra-optimized 120fps hardware acceleration for mobile touch drags
+          tooltip.style.transform = `translate3d(${left}px, ${top}px, 0)`;
           
           const isGreen = data.close >= data.open;
           const color = isGreen ? '#26a69a' : '#ef5350';
           
           tooltip.innerHTML = `
-            <div style="font-size: 10px; font-weight: 800; color: rgba(255,255,255,0.4); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">OHLC Details</div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;"><span style="color: rgba(255,255,255,0.6);">Open</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.open.toFixed(2)}</span></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;"><span style="color: rgba(255,255,255,0.6);">High</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.high.toFixed(2)}</span></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;"><span style="color: rgba(255,255,255,0.6);">Low</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.low.toFixed(2)}</span></div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: rgba(255,255,255,0.6);">Close</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.close.toFixed(2)}</span></div>
+            <div style="font-size: 9px; font-weight: 800; color: rgba(255,255,255,0.4); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">OHLC Details</div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Open</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.open.toFixed(2)}</span></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">High</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.high.toFixed(2)}</span></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Low</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.low.toFixed(2)}</span></div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Close</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.close.toFixed(2)}</span></div>
           `;
         } else {
           tooltip.style.opacity = '0';
@@ -340,10 +284,7 @@ export const LiveFinancialChart: React.FC = () => {
 
     const handleResize = () => {
       if (chartContainerRef.current) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
+        chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight });
       }
     };
     
@@ -363,11 +304,7 @@ export const LiveFinancialChart: React.FC = () => {
     const vSeries = volumeSeriesRef.current;
 
     setConnectionStatus('loading');
-
-    // Update Watermark safely
-    chartRef.current.applyOptions({
-      watermark: { text: symbol === 'BTCUSDT' ? 'BTC/USDT' : symbol === 'WTIUSD' ? 'WTI/USD' : 'XAU/USD' }
-    });
+    chartRef.current.applyOptions({ watermark: { text: symbol === 'BTCUSDT' ? 'BTC/USDT' : symbol === 'WTIUSD' ? 'WTI/USD' : 'XAU/USD' } });
 
     let currentCandle: CandlestickData | null = null;
     let currentVolume: HistogramData | null = null;
@@ -377,14 +314,14 @@ export const LiveFinancialChart: React.FC = () => {
       if (priceDisplayRef.current) {
         priceDisplayRef.current.textContent = price.toFixed(2);
         const isUp = price >= open;
-        priceDisplayRef.current.className = `font-mono font-bold text-3xl tracking-tight transition-colors duration-300 ${isUp ? 'text-[#26a69a] drop-shadow-[0_0_8px_rgba(38,166,154,0.4)]' : 'text-[#ef5350] drop-shadow-[0_0_8px_rgba(239,83,80,0.4)]'}`;
+        priceDisplayRef.current.className = `font-mono font-bold text-[24px] sm:text-3xl tracking-tight transition-colors duration-300 ${isUp ? 'text-[#26a69a] drop-shadow-[0_0_8px_rgba(38,166,154,0.4)]' : 'text-[#ef5350] drop-shadow-[0_0_8px_rgba(239,83,80,0.4)]'}`;
       }
       if (priceChangeRef.current) {
         const change = price - open;
         const percent = (change / open) * 100;
         const isUp = change >= 0;
         priceChangeRef.current.textContent = `${isUp ? '+' : ''}${change.toFixed(2)} (${percent.toFixed(2)}%)`;
-        priceChangeRef.current.className = `text-xs font-semibold mt-1 transition-colors duration-300 ${isUp ? 'text-[#26a69a]/90' : 'text-[#ef5350]/90'}`;
+        priceChangeRef.current.className = `text-[10px] sm:text-xs font-semibold mt-0.5 sm:mt-1 transition-colors duration-300 ${isUp ? 'text-[#26a69a]/90' : 'text-[#ef5350]/90'}`;
       }
     };
 
@@ -399,30 +336,11 @@ export const LiveFinancialChart: React.FC = () => {
 
       if (timeDiff >= 30 * 60) {
         let newTime = (time as number) + 30 * 60;
-        currentCandle = {
-          time: newTime as Time,
-          open: currentCandle.close,
-          high: Math.max(currentCandle.close, price),
-          low: Math.min(currentCandle.close, price),
-          close: price
-        };
-        currentVolume = {
-          time: newTime as Time,
-          value: Math.random() * 5 + 1,
-          color: volColor
-        };
+        currentCandle = { time: newTime as Time, open: currentCandle.close, high: Math.max(currentCandle.close, price), low: Math.min(currentCandle.close, price), close: price };
+        currentVolume = { time: newTime as Time, value: Math.random() * 5 + 1, color: volColor };
       } else {
-        currentCandle = {
-          ...currentCandle,
-          high: Math.max(currentCandle.high, price),
-          low: Math.min(currentCandle.low, price),
-          close: price
-        };
-        currentVolume = {
-          ...currentVolume,
-          value: currentVolume.value + Math.random() * 0.5,
-          color: volColor
-        };
+        currentCandle = { ...currentCandle, high: Math.max(currentCandle.high, price), low: Math.min(currentCandle.low, price), close: price };
+        currentVolume = { ...currentVolume, value: currentVolume.value + Math.random() * 0.5, color: volColor };
       }
       
       series.update(currentCandle);
@@ -451,9 +369,7 @@ export const LiveFinancialChart: React.FC = () => {
 
     const connectWS = () => {
       let firstTickLogged = false;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      if (wsRef.current) wsRef.current.close();
 
       let wsUrl = '';
       if (symbol === 'XAUUSD' || symbol === 'WTIUSD') {
@@ -468,35 +384,24 @@ export const LiveFinancialChart: React.FC = () => {
       ws.onopen = () => {
         console.log(`Connected to ${symbol} WebSocket`);
         setConnectionStatus('real');
-        // Stop mock data when connected
         if (mockIntervalRef.current) {
           clearInterval(mockIntervalRef.current);
           mockIntervalRef.current = null;
         }
 
-        if (symbol === 'XAUUSD') {
-          ws.send(JSON.stringify({ action: 'subscribe', params: { symbols: 'XAU/USD' } }));
-        } else if (symbol === 'WTIUSD') {
-          ws.send(JSON.stringify({ action: 'subscribe', params: { symbols: 'WTI/USD' } }));
-        }
+        if (symbol === 'XAUUSD') ws.send(JSON.stringify({ action: 'subscribe', params: { symbols: 'XAU/USD' } }));
+        else if (symbol === 'WTIUSD') ws.send(JSON.stringify({ action: 'subscribe', params: { symbols: 'WTI/USD' } }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           let price = 0;
-
-          if ((symbol === 'XAUUSD' || symbol === 'WTIUSD') && data.event === 'price' && data.price) {
-            price = parseFloat(data.price);
-          } else if (symbol === 'BTCUSDT' && data.c) {
-            price = parseFloat(data.c);
-          }
+          if ((symbol === 'XAUUSD' || symbol === 'WTIUSD') && data.event === 'price' && data.price) price = parseFloat(data.price);
+          else if (symbol === 'BTCUSDT' && data.c) price = parseFloat(data.c);
 
           if (price > 0) {
-            if (!firstTickLogged) {
-              console.log('Real Tick Received:', price);
-              firstTickLogged = true;
-            }
+            if (!firstTickLogged) { console.log('Real Tick Received:', price); firstTickLogged = true; }
             handleTick(price);
           }
         } catch (e) {
@@ -520,24 +425,11 @@ export const LiveFinancialChart: React.FC = () => {
       };
     };
 
-    // Async Initialization: Fetch History then Connect WS
     (async () => {
       try {
         const fetchedHistory = await getHistoricalData(symbol, timeframe);
-        
-        const candles = fetchedHistory.map(d => ({
-          time: d.time as Time,
-          open: d.open,
-          high: d.high,
-          low: d.low,
-          close: d.close
-        }));
-
-        const volumes = fetchedHistory.map(d => ({
-          time: d.time as Time,
-          value: d.volume,
-          color: d.close >= d.open ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)'
-        }));
+        const candles = fetchedHistory.map(d => ({ time: d.time as Time, open: d.open, high: d.high, low: d.low, close: d.close }));
+        const volumes = fetchedHistory.map(d => ({ time: d.time as Time, value: d.volume, color: d.close >= d.open ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)' }));
 
         series.setData(candles);
         vSeries.setData(volumes);
@@ -555,10 +447,7 @@ export const LiveFinancialChart: React.FC = () => {
         if (priceDisplayRef.current) priceDisplayRef.current.textContent = startPrice.toFixed(2);
         if (priceChangeRef.current) priceChangeRef.current.textContent = `+0.00 (0.00%)`;
 
-        // Start Live Feed after history is securely loaded
-        if (!isIntentionalClose) {
-          connectWS();
-        }
+        if (!isIntentionalClose) connectWS();
       } catch (err) {
         console.error('Critical initialization error:', err);
       }
@@ -568,9 +457,7 @@ export const LiveFinancialChart: React.FC = () => {
       isIntentionalClose = true;
       if (mockIntervalRef.current) clearInterval(mockIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      if (wsRef.current) wsRef.current.close();
     };
   }, [symbol, timeframe, updateLevelsDOM, updatePriceLines]);
 
@@ -584,16 +471,16 @@ export const LiveFinancialChart: React.FC = () => {
   return (
     <div className="relative w-full h-full min-h-screen bg-gradient-to-b from-[#050609] to-[#0b0e14] overflow-hidden font-sans">
       
-      {/* Top Header Controls */}
-      <div className="absolute top-6 right-4 sm:right-8 z-20 flex flex-wrap justify-end items-center gap-3">
+      {/* Top Header Controls - Scrollable and compacted for Mobile */}
+      <div className="absolute top-4 sm:top-6 left-4 right-4 sm:left-auto sm:right-8 z-20 flex sm:justify-end items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
         
         {/* Timeframe Selector */}
-        <div className="flex bg-white/5 border border-white/5 rounded-lg overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl p-1 gap-1">
+        <div className="flex shrink-0 bg-white/5 border border-white/5 rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl p-1 gap-1">
            {timeframes.map(tf => (
               <button 
                  key={tf}
                  onClick={() => setTimeframe(tf)}
-                 className={`px-3 py-1 text-[11px] font-bold tracking-wide rounded-md transition-all duration-300 ${timeframe === tf ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                 className={`px-2 py-1 sm:px-3 sm:py-1 text-[10px] sm:text-[11px] font-bold tracking-wide rounded-md transition-all duration-300 ${timeframe === tf ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
               >
                 {tf}
               </button>
@@ -601,9 +488,9 @@ export const LiveFinancialChart: React.FC = () => {
         </div>
 
         {/* Market Switcher */}
-        <div className="relative group">
+        <div className="relative group shrink-0">
           <select 
-            className="appearance-none bg-white/5 border border-white/5 pl-4 pr-10 py-1.5 rounded-lg text-xs tracking-wide text-white font-semibold outline-none cursor-pointer shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl focus:border-white/20 transition-all duration-300 hover:bg-white/10"
+            className="appearance-none bg-white/5 border border-white/5 pl-3 pr-8 sm:pl-4 sm:pr-10 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs tracking-wide text-white font-semibold outline-none cursor-pointer shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl focus:border-white/20 transition-all duration-300 hover:bg-white/10"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value as SymbolType)}
           >
@@ -611,39 +498,40 @@ export const LiveFinancialChart: React.FC = () => {
             <option value="BTCUSDT" className="bg-[#0b0e14]">₿ BTC/USDT</option>
             <option value="WTIUSD" className="bg-[#0b0e14]">🛢️ WTI/USD</option>
           </select>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 transition-colors group-hover:text-white">
-             <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"><path d="M6 9l6 6 6-6"></path></svg>
+          <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 transition-colors group-hover:text-white">
+             <svg width="10" height="10" className="sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"><path d="M6 9l6 6 6-6"></path></svg>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 bg-white/5 border border-white/5 px-3 py-1.5 rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl ring-1 ring-white/5">
-          <div className={`w-2 h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor] ${connectionStatus === 'real' ? 'bg-[#26a69a] text-[#26a69a]' : connectionStatus === 'loading' ? 'bg-[#fb8c00] text-[#fb8c00]' : 'bg-[#ef5350] text-[#ef5350]'}`}></div>
-          <span className="text-white font-bold tracking-[0.15em] text-[9px] mt-0.5">
+        {/* Live Status Badge */}
+        <div className="flex shrink-0 items-center space-x-1.5 sm:space-x-2 bg-white/5 border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl ring-1 ring-white/5">
+          <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor] ${connectionStatus === 'real' ? 'bg-[#26a69a] text-[#26a69a]' : connectionStatus === 'loading' ? 'bg-[#fb8c00] text-[#fb8c00]' : 'bg-[#ef5350] text-[#ef5350]'}`}></div>
+          <span className="text-white font-bold tracking-[0.1em] sm:tracking-[0.15em] text-[8px] sm:text-[9px] mt-0.5 whitespace-nowrap">
             {connectionStatus === 'real' ? 'LIVE DATA' : connectionStatus === 'loading' ? 'LOADING...' : 'API ERROR'}
           </span>
         </div>
       </div>
 
-      {/* Floating UI Overlay */}
-      <div className="absolute top-[80px] sm:top-6 left-4 sm:left-6 z-10 bg-[#07090e]/70 backdrop-blur-3xl border border-white/5 rounded-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8),_inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/5 text-white w-[calc(100%-2rem)] sm:w-[340px] pointer-events-none space-y-7 transition-all duration-500">
+      {/* Floating UI Overlay - Compact on Mobile */}
+      <div className="absolute top-[64px] sm:top-6 left-4 right-4 sm:right-auto sm:left-6 z-10 bg-[#07090e]/80 sm:bg-[#07090e]/70 backdrop-blur-2xl sm:backdrop-blur-3xl border border-white/5 rounded-2xl p-4 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8),_inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/5 text-white sm:w-[340px] pointer-events-none flex flex-col gap-4 sm:gap-7 transition-all duration-500">
         
-        <div className="flex justify-between items-start">
-          <div className="space-y-1.5">
-            <h1 className="text-white font-bold text-[28px] tracking-tighter leading-none drop-shadow-[0_0_12px_rgba(255,255,255,0.1)]">{symbol}</h1>
-            <p className="text-xs text-gray-400 font-semibold tracking-wide uppercase">{assetTitle} <span className="opacity-30 mx-1">•</span> {timeframe}</p>
+        <div className="flex justify-between items-center sm:items-start">
+          <div className="space-y-0.5 sm:space-y-1.5">
+            <h1 className="text-white font-extrabold text-[22px] sm:text-[28px] tracking-tighter leading-none drop-shadow-[0_0_12px_rgba(255,255,255,0.1)]">{symbol}</h1>
+            <p className="text-[10px] sm:text-xs text-gray-400 font-semibold tracking-wide uppercase">{assetTitle} <span className="opacity-30 mx-1">•</span> {timeframe}</p>
           </div>
           <div className="text-right">
-            <p ref={priceDisplayRef} className="font-mono font-bold text-3xl tracking-tight text-[#26a69a] drop-shadow-[0_0_8px_rgba(38,166,154,0.4)]">
+            <p ref={priceDisplayRef} className="font-mono font-bold text-[24px] sm:text-3xl tracking-tight text-[#26a69a] drop-shadow-[0_0_8px_rgba(38,166,154,0.4)]">
               0.00
             </p>
-            <p ref={priceChangeRef} className="text-xs font-semibold mt-1 text-[#26a69a]/90">
+            <p ref={priceChangeRef} className="text-[10px] sm:text-xs font-semibold mt-0.5 sm:mt-1 text-[#26a69a]/90">
               +0.00 (0.00%)
             </p>
           </div>
         </div>
 
-        {/* SELLING AREAS */}
-        <div>
+        {/* SELLING AREAS - Hidden on mobile to save vertical chart space */}
+        <div className="hidden sm:block">
           <p className="text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} SELLING AREAS</p>
           <div className="grid grid-cols-2 gap-2.5">
             {['R4', 'R3', 'R2', 'R1'].map(lvl => (
@@ -655,8 +543,8 @@ export const LiveFinancialChart: React.FC = () => {
           </div>
         </div>
 
-        {/* BUYING AREAS */}
-        <div>
+        {/* BUYING AREAS - Hidden on mobile */}
+        <div className="hidden sm:block">
           <p className="text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} BUYING AREAS</p>
           <div className="grid grid-cols-2 gap-2.5">
              {['S1', 'S2', 'S3', 'S4'].map(lvl => (
@@ -668,36 +556,38 @@ export const LiveFinancialChart: React.FC = () => {
           </div>
         </div>
 
-        {/* PIVOT POINT */}
-        <div className="flex items-center justify-between bg-white/[0.03] border border-white/[0.05] p-4 rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-          <p className="text-[10px] font-extrabold text-white/40 uppercase tracking-[0.25em]">{assetName} PIVOT POINT</p>
-          <div className="bg-white/10 px-3 py-1.5 rounded-lg shadow-inner ring-1 ring-white/10">
-            <span ref={el => levelsDisplayRefs.current['pivot'] = el} className="text-[13px] font-mono font-bold text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]">0.00</span>
+        {/* PIVOT POINT & TREND NOW (Compact Flex Layout on Mobile) */}
+        <div className="flex sm:flex-col gap-4 sm:gap-7 items-center sm:items-stretch">
+          
+          <div className="flex-1 sm:flex-none flex items-center sm:justify-between bg-white/[0.03] border border-white/[0.05] p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] justify-between">
+            <p className="text-[9px] sm:text-[10px] font-extrabold text-white/40 uppercase tracking-[0.15em] sm:tracking-[0.25em]">{assetName} PIVOT</p>
+            <div className="bg-white/10 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-inner ring-1 ring-white/10">
+              <span ref={el => levelsDisplayRefs.current['pivot'] = el} className="text-[11px] sm:text-[13px] font-mono font-bold text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]">0.00</span>
+            </div>
           </div>
-        </div>
 
-        {/* TREND NOW */}
-        <div>
-          <p className="text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} TREND NOW</p>
-          <div className="flex justify-between mb-2">
-            <span className="text-[10px] text-[#ef5350] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">BEARISH {bearishPercent}%</span>
-            <span className="text-[10px] text-[#26a69a] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(38,166,154,0.3)]">BULLISH {bullishPercent}%</span>
-          </div>
-          <div className="flex w-full bg-white/[0.02] rounded-full overflow-hidden h-1.5 shadow-inner ring-1 ring-white/5">
-            <div className="bg-gradient-to-r from-[#ef5350]/80 to-[#ef5350] transition-all duration-1000 ease-out" style={{ width: `${bearishPercent}%` }} />
-            <div className="bg-gradient-to-r from-[#26a69a] to-[#26a69a]/80 transition-all duration-1000 ease-out" style={{ width: `${bullishPercent}%` }} />
+          <div className="flex-1 sm:flex-none w-full">
+            <p className="hidden sm:block text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} TREND NOW</p>
+            <div className="flex justify-between mb-1.5 sm:mb-2">
+              <span className="text-[9px] sm:text-[10px] text-[#ef5350] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">{bearishPercent}%</span>
+              <span className="text-[9px] sm:text-[10px] text-[#26a69a] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(38,166,154,0.3)]">{bullishPercent}%</span>
+            </div>
+            <div className="flex w-full bg-white/[0.02] rounded-full overflow-hidden h-1 sm:h-1.5 shadow-inner ring-1 ring-white/5">
+              <div className="bg-gradient-to-r from-[#ef5350]/80 to-[#ef5350] transition-all duration-1000 ease-out" style={{ width: `${bearishPercent}%` }} />
+              <div className="bg-gradient-to-r from-[#26a69a] to-[#26a69a]/80 transition-all duration-1000 ease-out" style={{ width: `${bullishPercent}%` }} />
+            </div>
           </div>
         </div>
 
       </div>
 
-      <div ref={chartContainerRef} className="absolute inset-0" />
+      <div ref={chartContainerRef} className="absolute inset-0 touch-none" />
       
       {/* Dynamic Tooltip */}
       <div 
         ref={tooltipRef} 
-        className="absolute z-50 left-0 top-0 bg-[#07090e]/95 backdrop-blur-3xl border border-white/10 p-4 rounded-xl text-white shadow-[0_16px_40px_rgba(0,0,0,0.9),_inset_0_1px_0_rgba(255,255,255,0.1)] pointer-events-none transition-all duration-150 ease-out origin-top-left"
-        style={{ opacity: 0, transform: 'translate(-999px, -999px)' }}
+        className="absolute z-50 left-0 top-0 bg-[#07090e]/95 backdrop-blur-3xl border border-white/10 p-3 sm:p-4 rounded-xl text-white shadow-[0_16px_40px_rgba(0,0,0,0.9),_inset_0_1px_0_rgba(255,255,255,0.1)] pointer-events-none transition-all duration-75 ease-out origin-top-left will-change-transform"
+        style={{ opacity: 0, transform: 'translate3d(-999px, -999px, 0)' }}
       />
     </div>
   );
