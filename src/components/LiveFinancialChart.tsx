@@ -17,15 +17,15 @@ interface ChartLevels {
 }
 
 const GOLD_LEVELS: ChartLevels = {
-  r4: 4120.00,
-  r3: 4106.00,
-  r2: 4094.00,
-  r1: 4078.00,
-  pivot: 4077.00,
-  s1: 4063.00,
-  s2: 4051.00,
-  s3: 4035.00,
-  s4: 4021.00,
+  r4: 4120.000,
+  r3: 4106.000,
+  r2: 4094.000,
+  r1: 4078.000,
+  pivot: 4077.000,
+  s1: 4063.000,
+  s2: 4051.000,
+  s3: 4035.000,
+  s4: 4021.000,
 };
 
 function calculateLevels(currentPrice: number): ChartLevels {
@@ -151,6 +151,12 @@ export const LiveFinancialChart: React.FC = () => {
   const tooltipRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mockIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Custom DOM Overlay Refs
+  const demandZoneRef = useRef<HTMLDivElement>(null);
+  const countdownRef = useRef<HTMLDivElement>(null);
+  const currentCandleRef = useRef<CandlestickData | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   // DOM Refs for High-Frequency Updates (Prevents React Re-Renders)
   const priceDisplayRef = useRef<HTMLParagraphElement>(null);
@@ -168,7 +174,7 @@ export const LiveFinancialChart: React.FC = () => {
     levelsRef.current = levels;
     ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4'].forEach((lvl) => {
       const el = levelsDisplayRefs.current[lvl];
-      if (el) el.textContent = levels[lvl as keyof ChartLevels].toFixed(2);
+      if (el) el.textContent = levels[lvl as keyof ChartLevels].toFixed(3);
     });
   }, []);
 
@@ -180,7 +186,16 @@ export const LiveFinancialChart: React.FC = () => {
     priceLinesRef.current = [];
 
     const addLine = (price: number, color: string, title: string, style: number = 2) => {
-      const line = series.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title });
+      const line = series.createPriceLine({ 
+        price, 
+        color, 
+        lineWidth: 1, 
+        lineStyle: style, 
+        axisLabelVisible: true, 
+        title,
+        axisLabelColor: '#FFF100', // Elite Yellow Label Background
+        axisLabelTextColor: '#000000' // Black Text on Yellow
+      } as any);
       priceLinesRef.current.push(line);
     };
 
@@ -189,11 +204,58 @@ export const LiveFinancialChart: React.FC = () => {
     addLine(levels.r2, '#ef5350', 'R2', 3);
     addLine(levels.r1, '#ef5350', 'R1', 3);
     addLine(levels.pivot, '#ffffff', 'PIVOT', 1);
-    addLine(levels.s1, '#26a69a', 'S1', 3);
-    addLine(levels.s2, '#26a69a', 'S2', 3);
-    addLine(levels.s3, '#26a69a', 'S3', 3);
-    addLine(levels.s4, '#26a69a', 'S4', 3);
+    addLine(levels.s1, '#00bfa5', 'S1', 3); // Teal
+    addLine(levels.s2, '#00bfa5', 'S2', 3);
+    addLine(levels.s3, '#00bfa5', 'S3', 3);
+    addLine(levels.s4, '#00bfa5', 'S4', 3);
   }, []);
+
+  // Sync DOM elements perfectly with chart pans via requestAnimationFrame
+  const syncOverlays = useCallback(() => {
+    if (!seriesRef.current || !currentCandleRef.current) return;
+    const series = seriesRef.current;
+    
+    // Sync Demand Zone between S1 and S2
+    if (demandZoneRef.current) {
+      const y1 = series.priceToCoordinate(levelsRef.current.s1);
+      const y2 = series.priceToCoordinate(levelsRef.current.s2);
+      if (y1 !== null && y2 !== null) {
+        const top = Math.min(y1, y2);
+        const height = Math.abs(y1 - y2);
+        demandZoneRef.current.style.transform = `translate3d(0, ${top}px, 0)`;
+        demandZoneRef.current.style.height = `${height}px`;
+        demandZoneRef.current.style.opacity = '1';
+      }
+    }
+
+    // Sync Countdown Timer to right axis tracking current price
+    if (countdownRef.current) {
+      const y = series.priceToCoordinate(currentCandleRef.current.close);
+      if (y !== null) {
+        countdownRef.current.style.transform = `translate3d(0, ${y + 12}px, 0)`;
+        countdownRef.current.style.opacity = '1';
+      }
+    }
+  }, []);
+
+  // Timer logic for countdown remaining time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!countdownRef.current) return;
+      const now = Math.floor(Date.now() / 1000);
+      let secondsInTimeframe = 30 * 60;
+      if (timeframe === '15M') secondsInTimeframe = 15 * 60;
+      if (timeframe === '1H') secondsInTimeframe = 60 * 60;
+      if (timeframe === '4H') secondsInTimeframe = 4 * 60 * 60;
+      if (timeframe === '1D') secondsInTimeframe = 24 * 60 * 60;
+
+      const remaining = secondsInTimeframe - (now % secondsInTimeframe);
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      countdownRef.current.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timeframe]);
 
   // Handle Chart Initialization & Resize
   useEffect(() => {
@@ -219,8 +281,11 @@ export const LiveFinancialChart: React.FC = () => {
         horzLine: { color: 'rgba(255, 255, 255, 0.15)', width: 1, style: 3, labelBackgroundColor: '#1e222d' },
       },
       timeScale: { borderColor: 'rgba(255, 255, 255, 0.05)', timeVisible: true, secondsVisible: false },
-      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.05)', autoScale: true },
-      // Elite Mobile Performance Configs
+      rightPriceScale: { 
+        borderColor: 'rgba(255, 255, 255, 0.05)', 
+        autoScale: true,
+        minimumWidth: 80, // Expand right axis to comfortably fit yellow labels and timer
+      },
       handleScroll: { pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
       handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
       kineticScroll: { touch: true, mouse: true },
@@ -229,17 +294,24 @@ export const LiveFinancialChart: React.FC = () => {
     chartRef.current = chart;
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
-      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      upColor: '#00bfa5', downColor: '#ef5350', borderVisible: false,
+      wickUpColor: '#00bfa5', wickDownColor: '#ef5350',
+      priceFormat: { type: 'price', precision: 3, minMove: 0.001 },
     });
     seriesRef.current = candlestickSeries;
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
-      color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: '',
+      color: '#00bfa5', priceFormat: { type: 'volume' }, priceScaleId: '',
     });
     chart.priceScale('').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     volumeSeriesRef.current = volumeSeries;
+
+    // Start 120fps sync loop for DOM elements overlaying the canvas
+    const startSyncLoop = () => {
+      syncOverlays();
+      animationFrameRef.current = requestAnimationFrame(startSyncLoop);
+    };
+    startSyncLoop();
 
     chart.subscribeCrosshairMove((param) => {
       if (!tooltipRef.current || !chartContainerRef.current || !seriesRef.current) return;
@@ -263,18 +335,17 @@ export const LiveFinancialChart: React.FC = () => {
           if (left + tooltipWidth > chartContainerRef.current.clientWidth) left = param.point.x - tooltipWidth - 15;
           if (top + tooltipHeight > chartContainerRef.current.clientHeight) top = param.point.y - tooltipHeight - 15;
           
-          // Ultra-optimized 120fps hardware acceleration for mobile touch drags
           tooltip.style.transform = `translate3d(${left}px, ${top}px, 0)`;
           
           const isGreen = data.close >= data.open;
-          const color = isGreen ? '#26a69a' : '#ef5350';
+          const color = isGreen ? '#00bfa5' : '#ef5350';
           
           tooltip.innerHTML = `
             <div style="font-size: 9px; font-weight: 800; color: rgba(255,255,255,0.4); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">OHLC Details</div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Open</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.open.toFixed(2)}</span></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">High</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.high.toFixed(2)}</span></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Low</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.low.toFixed(2)}</span></div>
-            <div style="display: flex; justify-content: space-between; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Close</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.close.toFixed(2)}</span></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Open</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.open.toFixed(3)}</span></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">High</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.high.toFixed(3)}</span></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Low</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.low.toFixed(3)}</span></div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px;"><span style="color: rgba(255,255,255,0.6);">Close</span> <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${color}; text-shadow: 0 0 8px ${color}40;">${data.close.toFixed(3)}</span></div>
           `;
         } else {
           tooltip.style.opacity = '0';
@@ -293,9 +364,10 @@ export const LiveFinancialChart: React.FC = () => {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       chart.remove();
     };
-  }, []);
+  }, [syncOverlays]);
 
   // Handle Supabase Data Fetching & WebSocket Data
   useEffect(() => {
@@ -306,46 +378,49 @@ export const LiveFinancialChart: React.FC = () => {
     setConnectionStatus('loading');
     chartRef.current.applyOptions({ watermark: { text: symbol === 'BTCUSDT' ? 'BTC/USDT' : symbol === 'WTIUSD' ? 'WTI/USD' : 'XAU/USD' } });
 
-    let currentCandle: CandlestickData | null = null;
-    let currentVolume: HistogramData | null = null;
     let isIntentionalClose = false;
 
     const updatePriceUI = (price: number, open: number) => {
       if (priceDisplayRef.current) {
-        priceDisplayRef.current.textContent = price.toFixed(2);
+        priceDisplayRef.current.textContent = price.toFixed(3);
         const isUp = price >= open;
-        priceDisplayRef.current.className = `font-mono font-bold text-[24px] sm:text-3xl tracking-tight transition-colors duration-300 ${isUp ? 'text-[#26a69a] drop-shadow-[0_0_8px_rgba(38,166,154,0.4)]' : 'text-[#ef5350] drop-shadow-[0_0_8px_rgba(239,83,80,0.4)]'}`;
+        priceDisplayRef.current.className = `font-mono font-bold text-[24px] sm:text-3xl tracking-tight transition-colors duration-300 ${isUp ? 'text-[#00bfa5] drop-shadow-[0_0_8px_rgba(0,191,165,0.4)]' : 'text-[#ef5350] drop-shadow-[0_0_8px_rgba(239,83,80,0.4)]'}`;
       }
       if (priceChangeRef.current) {
         const change = price - open;
         const percent = (change / open) * 100;
         const isUp = change >= 0;
-        priceChangeRef.current.textContent = `${isUp ? '+' : ''}${change.toFixed(2)} (${percent.toFixed(2)}%)`;
-        priceChangeRef.current.className = `text-[10px] sm:text-xs font-semibold mt-0.5 sm:mt-1 transition-colors duration-300 ${isUp ? 'text-[#26a69a]/90' : 'text-[#ef5350]/90'}`;
+        priceChangeRef.current.textContent = `${isUp ? '+' : ''}${change.toFixed(3)} (${percent.toFixed(2)}%)`;
+        priceChangeRef.current.className = `text-[10px] sm:text-xs font-semibold mt-0.5 sm:mt-1 transition-colors duration-300 ${isUp ? 'text-[#00bfa5]/90' : 'text-[#ef5350]/90'}`;
       }
     };
 
     const handleTick = (price: number) => {
-      if (!currentCandle || !currentVolume) return;
+      if (!currentCandleRef.current) return;
+      const currentCandle = currentCandleRef.current;
       
       const time = currentCandle.time;
       const now = Math.floor(Date.now() / 1000);
       const timeDiff = now - (time as number);
       const isGreen = price >= currentCandle.open;
-      const volColor = isGreen ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)';
+      const volColor = isGreen ? 'rgba(0, 191, 165, 0.25)' : 'rgba(239, 83, 80, 0.25)';
+
+      let updatedCandle: CandlestickData;
+      let updatedVolume: HistogramData;
 
       if (timeDiff >= 30 * 60) {
         let newTime = (time as number) + 30 * 60;
-        currentCandle = { time: newTime as Time, open: currentCandle.close, high: Math.max(currentCandle.close, price), low: Math.min(currentCandle.close, price), close: price };
-        currentVolume = { time: newTime as Time, value: Math.random() * 5 + 1, color: volColor };
+        updatedCandle = { time: newTime as Time, open: currentCandle.close, high: Math.max(currentCandle.close, price), low: Math.min(currentCandle.close, price), close: price };
+        updatedVolume = { time: newTime as Time, value: Math.random() * 5 + 1, color: volColor };
       } else {
-        currentCandle = { ...currentCandle, high: Math.max(currentCandle.high, price), low: Math.min(currentCandle.low, price), close: price };
-        currentVolume = { ...currentVolume, value: currentVolume.value + Math.random() * 0.5, color: volColor };
+        updatedCandle = { ...currentCandle, high: Math.max(currentCandle.high, price), low: Math.min(currentCandle.low, price), close: price };
+        updatedVolume = { time: time as Time, value: Math.random() * 0.5 + 5, color: volColor }; // mock volume increment
       }
       
-      series.update(currentCandle);
-      vSeries.update(currentVolume);
-      updatePriceUI(price, currentCandle.open);
+      currentCandleRef.current = updatedCandle;
+      series.update(updatedCandle);
+      vSeries.update(updatedVolume);
+      updatePriceUI(price, updatedCandle.open);
 
       if (symbol !== 'XAUUSD') {
         const recalculatedLevels = calculateLevels(price);
@@ -360,9 +435,9 @@ export const LiveFinancialChart: React.FC = () => {
       setConnectionStatus('simulated');
       if (mockIntervalRef.current) clearInterval(mockIntervalRef.current);
       mockIntervalRef.current = setInterval(() => {
-        if (!currentCandle) return;
+        if (!currentCandleRef.current) return;
         const volatility = symbol === 'XAUUSD' ? 0.5 : symbol === 'WTIUSD' ? 0.05 : 5;
-        const price = currentCandle.close + (Math.random() - 0.5) * volatility;
+        const price = currentCandleRef.current.close + (Math.random() - 0.5) * volatility;
         handleTick(price);
       }, 1000);
     };
@@ -429,23 +504,22 @@ export const LiveFinancialChart: React.FC = () => {
       try {
         const fetchedHistory = await getHistoricalData(symbol, timeframe);
         const candles = fetchedHistory.map(d => ({ time: d.time as Time, open: d.open, high: d.high, low: d.low, close: d.close }));
-        const volumes = fetchedHistory.map(d => ({ time: d.time as Time, value: d.volume, color: d.close >= d.open ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)' }));
+        const volumes = fetchedHistory.map(d => ({ time: d.time as Time, value: d.volume, color: d.close >= d.open ? 'rgba(0, 191, 165, 0.25)' : 'rgba(239, 83, 80, 0.25)' }));
 
         series.setData(candles);
         vSeries.setData(volumes);
 
-        currentCandle = { ...candles[candles.length - 1] };
-        currentVolume = { ...volumes[volumes.length - 1] };
+        currentCandleRef.current = { ...candles[candles.length - 1] };
         
-        const startPrice = currentCandle.close;
+        const startPrice = currentCandleRef.current.close;
         startPriceRef.current = startPrice;
 
         const newLevels = symbol === 'BTCUSDT' || symbol === 'WTIUSD' ? calculateLevels(startPrice) : GOLD_LEVELS;
         updateLevelsDOM(newLevels);
         updatePriceLines(newLevels);
 
-        if (priceDisplayRef.current) priceDisplayRef.current.textContent = startPrice.toFixed(2);
-        if (priceChangeRef.current) priceChangeRef.current.textContent = `+0.00 (0.00%)`;
+        if (priceDisplayRef.current) priceDisplayRef.current.textContent = startPrice.toFixed(3);
+        if (priceChangeRef.current) priceChangeRef.current.textContent = `+0.000 (0.00%)`;
 
         if (!isIntentionalClose) connectWS();
       } catch (err) {
@@ -469,18 +543,18 @@ export const LiveFinancialChart: React.FC = () => {
   const bullishPercent = 100 - bearishPercent;
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-gradient-to-b from-[#050609] to-[#0b0e14] overflow-hidden font-sans">
+    <div className="relative w-full h-full min-h-screen bg-[#07090e] overflow-hidden font-sans">
       
       {/* Top Header Controls - Scrollable and compacted for Mobile */}
       <div className="absolute top-4 sm:top-6 left-4 right-4 sm:left-auto sm:right-8 z-20 flex sm:justify-end items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
         
         {/* Timeframe Selector */}
-        <div className="flex shrink-0 bg-white/5 border border-white/5 rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl p-1 gap-1">
+        <div className="flex shrink-0 bg-[#0b0e14] border border-white/5 rounded-lg shadow-lg p-1 gap-1">
            {timeframes.map(tf => (
               <button 
                  key={tf}
                  onClick={() => setTimeframe(tf)}
-                 className={`px-2 py-1 sm:px-3 sm:py-1 text-[10px] sm:text-[11px] font-bold tracking-wide rounded-md transition-all duration-300 ${timeframe === tf ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                 className={`px-2 py-1 sm:px-3 sm:py-1 text-[10px] sm:text-[11px] font-bold tracking-wide rounded-md transition-all duration-300 ${timeframe === tf ? 'bg-white/10 text-[#00bfa5] shadow-sm ring-1 ring-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
               >
                 {tf}
               </button>
@@ -490,7 +564,7 @@ export const LiveFinancialChart: React.FC = () => {
         {/* Market Switcher */}
         <div className="relative group shrink-0">
           <select 
-            className="appearance-none bg-white/5 border border-white/5 pl-3 pr-8 sm:pl-4 sm:pr-10 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs tracking-wide text-white font-semibold outline-none cursor-pointer shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl focus:border-white/20 transition-all duration-300 hover:bg-white/10"
+            className="appearance-none bg-[#0b0e14] border border-white/5 pl-3 pr-8 sm:pl-4 sm:pr-10 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs tracking-wide text-white font-semibold outline-none cursor-pointer shadow-lg focus:border-white/20 transition-all duration-300 hover:bg-white/10"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value as SymbolType)}
           >
@@ -504,8 +578,8 @@ export const LiveFinancialChart: React.FC = () => {
         </div>
 
         {/* Live Status Badge */}
-        <div className="flex shrink-0 items-center space-x-1.5 sm:space-x-2 bg-white/5 border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl ring-1 ring-white/5">
-          <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor] ${connectionStatus === 'real' ? 'bg-[#26a69a] text-[#26a69a]' : connectionStatus === 'loading' ? 'bg-[#fb8c00] text-[#fb8c00]' : 'bg-[#ef5350] text-[#ef5350]'}`}></div>
+        <div className="flex shrink-0 items-center space-x-1.5 sm:space-x-2 bg-[#0b0e14] border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-lg ring-1 ring-white/5">
+          <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor] ${connectionStatus === 'real' ? 'bg-[#00bfa5] text-[#00bfa5]' : connectionStatus === 'loading' ? 'bg-[#fb8c00] text-[#fb8c00]' : 'bg-[#ef5350] text-[#ef5350]'}`}></div>
           <span className="text-white font-bold tracking-[0.1em] sm:tracking-[0.15em] text-[8px] sm:text-[9px] mt-0.5 whitespace-nowrap">
             {connectionStatus === 'real' ? 'LIVE DATA' : connectionStatus === 'loading' ? 'LOADING...' : 'API ERROR'}
           </span>
@@ -521,48 +595,48 @@ export const LiveFinancialChart: React.FC = () => {
             <p className="text-[10px] sm:text-xs text-gray-400 font-semibold tracking-wide uppercase">{assetTitle} <span className="opacity-30 mx-1">•</span> {timeframe}</p>
           </div>
           <div className="text-right">
-            <p ref={priceDisplayRef} className="font-mono font-bold text-[24px] sm:text-3xl tracking-tight text-[#26a69a] drop-shadow-[0_0_8px_rgba(38,166,154,0.4)]">
-              0.00
+            <p ref={priceDisplayRef} className="font-mono font-bold text-[24px] sm:text-3xl tracking-tight text-[#00bfa5] drop-shadow-[0_0_8px_rgba(0,191,165,0.4)]">
+              0.000
             </p>
-            <p ref={priceChangeRef} className="text-[10px] sm:text-xs font-semibold mt-0.5 sm:mt-1 text-[#26a69a]/90">
-              +0.00 (0.00%)
+            <p ref={priceChangeRef} className="text-[10px] sm:text-xs font-semibold mt-0.5 sm:mt-1 text-[#00bfa5]/90">
+              +0.000 (0.00%)
             </p>
           </div>
         </div>
 
-        {/* SELLING AREAS - Hidden on mobile to save vertical chart space */}
+        {/* SELLING AREAS */}
         <div className="hidden sm:block">
           <p className="text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} SELLING AREAS</p>
           <div className="grid grid-cols-2 gap-2.5">
             {['R4', 'R3', 'R2', 'R1'].map(lvl => (
-               <div key={lvl} className="flex justify-between items-center bg-white/[0.03] border border-white/[0.03] px-3 py-2 rounded-xl transition-all duration-300">
+               <div key={lvl} className="flex justify-between items-center bg-[#0b0e14] border border-white/[0.03] px-3 py-2 rounded-xl transition-all duration-300">
                  <span className="text-[10px] font-bold text-gray-500 tracking-wider">{lvl}</span>
-                 <span ref={el => levelsDisplayRefs.current[lvl.toLowerCase()] = el} className="text-[12px] text-[#ef5350] font-mono font-bold drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">0.00</span>
+                 <span ref={el => levelsDisplayRefs.current[lvl.toLowerCase()] = el} className="text-[12px] text-[#ef5350] font-mono font-bold drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">0.000</span>
                </div>
             ))}
           </div>
         </div>
 
-        {/* BUYING AREAS - Hidden on mobile */}
+        {/* BUYING AREAS */}
         <div className="hidden sm:block">
-          <p className="text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} BUYING AREAS</p>
+          <p className="text-[9px] font-extrabold text-[#00bfa5]/30 uppercase tracking-[0.25em] mb-3">{assetName} DEMAND ZONE</p>
           <div className="grid grid-cols-2 gap-2.5">
              {['S1', 'S2', 'S3', 'S4'].map(lvl => (
-               <div key={lvl} className="flex justify-between items-center bg-white/[0.03] border border-white/[0.03] px-3 py-2 rounded-xl transition-all duration-300">
+               <div key={lvl} className="flex justify-between items-center bg-[#0b0e14] border border-white/[0.03] px-3 py-2 rounded-xl transition-all duration-300">
                  <span className="text-[10px] font-bold text-gray-500 tracking-wider">{lvl}</span>
-                 <span ref={el => levelsDisplayRefs.current[lvl.toLowerCase()] = el} className="text-[12px] text-[#26a69a] font-mono font-bold drop-shadow-[0_0_4px_rgba(38,166,154,0.3)]">0.00</span>
+                 <span ref={el => levelsDisplayRefs.current[lvl.toLowerCase()] = el} className="text-[12px] text-[#00bfa5] font-mono font-bold drop-shadow-[0_0_4px_rgba(0,191,165,0.3)]">0.000</span>
                </div>
             ))}
           </div>
         </div>
 
-        {/* PIVOT POINT & TREND NOW (Compact Flex Layout on Mobile) */}
+        {/* PIVOT POINT & TREND NOW */}
         <div className="flex sm:flex-col gap-4 sm:gap-7 items-center sm:items-stretch">
           
-          <div className="flex-1 sm:flex-none flex items-center sm:justify-between bg-white/[0.03] border border-white/[0.05] p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] justify-between">
+          <div className="flex-1 sm:flex-none flex items-center sm:justify-between bg-[#0b0e14] border border-white/[0.05] p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] justify-between">
             <p className="text-[9px] sm:text-[10px] font-extrabold text-white/40 uppercase tracking-[0.15em] sm:tracking-[0.25em]">{assetName} PIVOT</p>
             <div className="bg-white/10 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-inner ring-1 ring-white/10">
-              <span ref={el => levelsDisplayRefs.current['pivot'] = el} className="text-[11px] sm:text-[13px] font-mono font-bold text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]">0.00</span>
+              <span ref={el => levelsDisplayRefs.current['pivot'] = el} className="text-[11px] sm:text-[13px] font-mono font-bold text-[#FFF100] drop-shadow-[0_0_6px_rgba(255,241,0,0.5)]">0.000</span>
             </div>
           </div>
 
@@ -570,11 +644,11 @@ export const LiveFinancialChart: React.FC = () => {
             <p className="hidden sm:block text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} TREND NOW</p>
             <div className="flex justify-between mb-1.5 sm:mb-2">
               <span className="text-[9px] sm:text-[10px] text-[#ef5350] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">{bearishPercent}%</span>
-              <span className="text-[9px] sm:text-[10px] text-[#26a69a] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(38,166,154,0.3)]">{bullishPercent}%</span>
+              <span className="text-[9px] sm:text-[10px] text-[#00bfa5] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(0,191,165,0.3)]">{bullishPercent}%</span>
             </div>
             <div className="flex w-full bg-white/[0.02] rounded-full overflow-hidden h-1 sm:h-1.5 shadow-inner ring-1 ring-white/5">
               <div className="bg-gradient-to-r from-[#ef5350]/80 to-[#ef5350] transition-all duration-1000 ease-out" style={{ width: `${bearishPercent}%` }} />
-              <div className="bg-gradient-to-r from-[#26a69a] to-[#26a69a]/80 transition-all duration-1000 ease-out" style={{ width: `${bullishPercent}%` }} />
+              <div className="bg-gradient-to-r from-[#00bfa5] to-[#00bfa5]/80 transition-all duration-1000 ease-out" style={{ width: `${bullishPercent}%` }} />
             </div>
           </div>
         </div>
@@ -583,6 +657,22 @@ export const LiveFinancialChart: React.FC = () => {
 
       <div ref={chartContainerRef} className="absolute inset-0 touch-none" />
       
+      {/* Demand Zone Overlay (Between S1 and S2) */}
+      <div 
+        ref={demandZoneRef}
+        className="absolute left-0 right-[80px] bg-[#00bfa5]/5 pointer-events-none transition-transform duration-75 will-change-transform z-0"
+        style={{ opacity: 0, height: 0, borderTop: '1px dashed rgba(0,191,165,0.1)', borderBottom: '1px dashed rgba(0,191,165,0.1)' }}
+      />
+
+      {/* Countdown Timer Overlay (Follows Price) */}
+      <div 
+        ref={countdownRef}
+        className="absolute right-0 w-[80px] text-center font-mono font-bold text-[10px] text-[#00bfa5] pointer-events-none transition-transform duration-75 will-change-transform z-10 bg-[#07090e]/80 py-0.5 border-t border-b border-[#00bfa5]/20 shadow-[0_0_8px_rgba(0,191,165,0.2)]"
+        style={{ opacity: 0 }}
+      >
+        00:00
+      </div>
+
       {/* Dynamic Tooltip */}
       <div 
         ref={tooltipRef} 
