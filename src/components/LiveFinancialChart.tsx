@@ -28,20 +28,51 @@ const GOLD_LEVELS: ChartLevels = {
   s4: 4021.000,
 };
 
-function calculateLevels(currentPrice: number): ChartLevels {
-  const pivot = Math.floor(currentPrice);
-  const range = currentPrice * 0.005; 
-  return {
-    r4: pivot + range * 4,
-    r3: pivot + range * 3,
-    r2: pivot + range * 2,
-    r1: pivot + range * 1,
-    pivot: pivot,
-    s1: pivot - range * 1,
-    s2: pivot - range * 2,
-    s3: pivot - range * 3,
-    s4: pivot - range * 4,
-  };
+// Professional Floor Pivot Points Formula based on Historical High/Low/Close
+function calculateProfessionalLevels(high: number, low: number, close: number): ChartLevels {
+  const pivot = (high + low + close) / 3;
+  const r1 = (2 * pivot) - low;
+  const s1 = (2 * pivot) - high;
+  const r2 = pivot + (high - low);
+  const s2 = pivot - (high - low);
+  const r3 = high + 2 * (pivot - low);
+  const s3 = low - 2 * (high - pivot);
+  const r4 = r3 + (high - low);
+  const s4 = s3 - (high - low);
+
+  return { r4, r3, r2, r1, pivot, s1, s2, s3, s4 };
+}
+
+// Professional 14-Period RSI (Relative Strength Index) for Trend Calculation
+function calculateRSI(closes: number[], periods: number = 14): number {
+  if (closes.length <= periods) return 50; // Default to neutral if not enough data
+  
+  let gains = 0;
+  let losses = 0;
+  
+  for (let i = 1; i <= periods; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+  
+  let avgGain = gains / periods;
+  let avgLoss = losses / periods;
+  
+  for (let i = periods + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) {
+      avgGain = (avgGain * (periods - 1) + diff) / periods;
+      avgLoss = (avgLoss * (periods - 1)) / periods;
+    } else {
+      avgGain = (avgGain * (periods - 1)) / periods;
+      avgLoss = (avgLoss * (periods - 1) - diff) / periods;
+    }
+  }
+  
+  if (avgLoss === 0) return 100; // 100% Bullish
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
 }
 
 const fetchBinanceHistory = async (symbol: string, timeframe: string) => {
@@ -166,6 +197,9 @@ export const LiveFinancialChart: React.FC = () => {
   const [symbol, setSymbol] = useState<SymbolType>('XAUUSD');
   const [timeframe, setTimeframe] = useState<string>('30M');
   const [connectionStatus, setConnectionStatus] = useState<'real' | 'simulated' | 'loading'>('loading');
+  
+  // Real-time calculated Trend from Historical RSI
+  const [trend, setTrend] = useState({ bullish: 50, bearish: 50 });
 
   const levelsRef = useRef<ChartLevels>(GOLD_LEVELS);
   const startPriceRef = useRef<number>(0);
@@ -284,10 +318,23 @@ export const LiveFinancialChart: React.FC = () => {
       rightPriceScale: { 
         borderColor: 'rgba(255, 255, 255, 0.05)', 
         autoScale: true,
-        minimumWidth: 80, // Expand right axis to comfortably fit yellow labels and timer
+        scaleMargins: {
+          top: 0.3,    // 30% empty space at top to naturally reveal R1/R2 without scrolling
+          bottom: 0.3, // 30% empty space at bottom to naturally reveal S1/S2 without scrolling
+        },
+        minimumWidth: 80, 
       },
-      handleScroll: { pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      handleScroll: { 
+        pressedMouseMove: true, 
+        horzTouchDrag: true, 
+        vertTouchDrag: true, 
+        mouseWheel: true 
+      },
+      handleScale: { 
+        axisPressedMouseMove: { time: true, price: true }, 
+        mouseWheel: true, 
+        pinch: true 
+      },
       kineticScroll: { touch: true, mouse: true },
     });
 
@@ -421,14 +468,6 @@ export const LiveFinancialChart: React.FC = () => {
       series.update(updatedCandle);
       vSeries.update(updatedVolume);
       updatePriceUI(price, updatedCandle.open);
-
-      if (symbol !== 'XAUUSD') {
-        const recalculatedLevels = calculateLevels(price);
-        if (Math.abs(recalculatedLevels.pivot - levelsRef.current.pivot) > (price * 0.001)) {
-          updateLevelsDOM(recalculatedLevels);
-          updatePriceLines(recalculatedLevels);
-        }
-      }
     };
 
     const startMockData = () => {
@@ -514,9 +553,18 @@ export const LiveFinancialChart: React.FC = () => {
         const startPrice = currentCandleRef.current.close;
         startPriceRef.current = startPrice;
 
-        const newLevels = symbol === 'BTCUSDT' || symbol === 'WTIUSD' ? calculateLevels(startPrice) : GOLD_LEVELS;
+        // CALCULATE PROFESSIONAL PIVOT LEVELS FROM HISTORICAL EXTREMES
+        const historyHigh = Math.max(...candles.map(c => c.high));
+        const historyLow = Math.min(...candles.map(c => c.low));
+        
+        const newLevels = calculateProfessionalLevels(historyHigh, historyLow, startPrice);
         updateLevelsDOM(newLevels);
         updatePriceLines(newLevels);
+
+        // CALCULATE REAL-TIME RSI FOR TREND PERCENTAGE
+        const closes = candles.map(c => c.close);
+        const rsiValue = calculateRSI(closes, 14);
+        setTrend({ bullish: Math.round(rsiValue), bearish: 100 - Math.round(rsiValue) });
 
         if (priceDisplayRef.current) priceDisplayRef.current.textContent = startPrice.toFixed(3);
         if (priceChangeRef.current) priceChangeRef.current.textContent = `+0.000 (0.00%)`;
@@ -538,9 +586,6 @@ export const LiveFinancialChart: React.FC = () => {
   const assetName = symbol === 'XAUUSD' ? 'GOLD' : symbol === 'WTIUSD' ? 'WTI' : 'BTC';
   const assetTitle = symbol === 'XAUUSD' ? 'Gold vs US Dollar' : symbol === 'WTIUSD' ? 'WTI Crude Oil' : 'Bitcoin vs Tether';
   const timeframes = ['15M', '30M', '1H', '4H', '1D'];
-
-  const bearishPercent = symbol === 'BTCUSDT' ? 42 : 47;
-  const bullishPercent = 100 - bearishPercent;
 
   return (
     <div className="relative w-full h-full min-h-screen bg-[#07090e] overflow-hidden font-sans">
@@ -643,12 +688,12 @@ export const LiveFinancialChart: React.FC = () => {
           <div className="flex-1 sm:flex-none w-full">
             <p className="hidden sm:block text-[9px] font-extrabold text-white/30 uppercase tracking-[0.25em] mb-3">{assetName} TREND NOW</p>
             <div className="flex justify-between mb-1.5 sm:mb-2">
-              <span className="text-[9px] sm:text-[10px] text-[#ef5350] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">{bearishPercent}%</span>
-              <span className="text-[9px] sm:text-[10px] text-[#00bfa5] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(0,191,165,0.3)]">{bullishPercent}%</span>
+              <span className="text-[9px] sm:text-[10px] text-[#ef5350] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(239,83,80,0.3)]">{trend.bearish}%</span>
+              <span className="text-[9px] sm:text-[10px] text-[#00bfa5] font-bold tracking-[0.1em] drop-shadow-[0_0_4px_rgba(0,191,165,0.3)]">{trend.bullish}%</span>
             </div>
             <div className="flex w-full bg-white/[0.02] rounded-full overflow-hidden h-1 sm:h-1.5 shadow-inner ring-1 ring-white/5">
-              <div className="bg-gradient-to-r from-[#ef5350]/80 to-[#ef5350] transition-all duration-1000 ease-out" style={{ width: `${bearishPercent}%` }} />
-              <div className="bg-gradient-to-r from-[#00bfa5] to-[#00bfa5]/80 transition-all duration-1000 ease-out" style={{ width: `${bullishPercent}%` }} />
+              <div className="bg-gradient-to-r from-[#ef5350]/80 to-[#ef5350] transition-all duration-1000 ease-out" style={{ width: `${trend.bearish}%` }} />
+              <div className="bg-gradient-to-r from-[#00bfa5] to-[#00bfa5]/80 transition-all duration-1000 ease-out" style={{ width: `${trend.bullish}%` }} />
             </div>
           </div>
         </div>
