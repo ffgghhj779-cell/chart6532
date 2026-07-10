@@ -1,0 +1,15 @@
+{
+  "name": "chart-screenshot-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot that takes screenshots of Vercel app every 15 minutes.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.64.0",
+    "puppeteer": "^21.5.0"
+  }
+}
