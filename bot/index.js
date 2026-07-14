@@ -7,34 +7,39 @@ const cron = require('node-cron');
 const token = process.env.TELEGRAM_BOT_TOKEN || '8946049233:AAH6RaR7A5Ahcr6qwwk74kTIZGDqS5XrtFI';
 const bot = new TelegramBot(token, { polling: true });
 
-// Vercel app URL
-const APP_URL = 'https://chart6532.vercel.app/';
+// Vercel app URL base
+const APP_URL_BASE = 'https://chart6532.vercel.app/';
 
-// Store chat IDs dynamically when users text the bot
+// Store chat IDs dynamically when users text the bot or add it to groups
 let activeChatIds = new Set();
 
-// Listen for any message to capture Chat ID
+// Listen for any message to capture Chat ID (works for private chats AND groups)
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   if (!activeChatIds.has(chatId)) {
     activeChatIds.add(chatId);
-    bot.sendMessage(chatId, 'تم تسجيلك بنجاح! 🚀 سأقوم بإرسال سكرين شوت للشارت هنا تلقائياً كل 15 دقيقة.');
+    bot.sendMessage(chatId, 'تم تفعيل البوت هنا بنجاح! 🚀 سيقوم البوت بإرسال (الذهب العالمي، الذهب المحلي، والدولار) تلقائياً كل ساعة.');
     console.log(`New chat ID registered: ${chatId}`);
     
-    // Trigger an immediate screenshot for the first time
-    bot.sendMessage(chatId, 'جاري التقاط أول سكرين شوت الآن، يرجى الانتظار ثواني... ⏳');
-    takeAndSendScreenshot(chatId);
-  } else {
-    bot.sendMessage(chatId, 'البوت يعمل بنجاح في الخلفية! السكرين شوت القادمة ستصلك في موعدها المبرمج. 📈');
+    // Trigger an immediate screenshot sequence for the first time
+    bot.sendMessage(chatId, 'جاري التقاط أول دفعة من السكرين شوت، يرجى الانتظار دقيقة... ⏳');
+    takeAndSendAllScreenshots(chatId);
   }
 });
 
-// Function to take screenshot and send
-async function takeAndSendScreenshot(targetChatId = null) {
+// Function to take screenshot for a specific symbol and send it
+async function takeAndSendAllScreenshots(targetChatId = null) {
   if (activeChatIds.size === 0 && !targetChatId) {
     console.log('No active chats registered yet. Skipping screenshot.');
     return;
   }
+
+  const targets = targetChatId ? [targetChatId] : Array.from(activeChatIds);
+  const symbolsToCapture = [
+    { symbol: 'XAUUSD', name: '🥇 الذهب العالمي (XAU/USD)' },
+    { symbol: 'XAUEGP', name: '🇪🇬 الذهب المحلي عيار 21 (EGP)' },
+    { symbol: 'USDEGP', name: '💵 الدولار مقابل الجنيه (USD/EGP)' }
+  ];
 
   let browser;
   try {
@@ -47,7 +52,6 @@ async function takeAndSendScreenshot(targetChatId = null) {
         '--disable-dev-shm-usage',
         '--disable-gpu'
       ],
-      // Use the executable path if provided by the Docker image environment variable
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath()
     });
 
@@ -55,33 +59,35 @@ async function takeAndSendScreenshot(targetChatId = null) {
     // Set viewport to mobile size for a clean look
     await page.setViewport({ width: 400, height: 850, deviceScaleFactor: 2 });
     
-    console.log(`Navigating to ${APP_URL}...`);
-    // Wait until network is idle to ensure data is fetched and chart is rendered
-    await page.goto(APP_URL, { waitUntil: 'networkidle2', timeout: 60000 });
-    
-    // Wait an extra 3 seconds to ensure lightweight-charts animation finishes completely
-    await new Promise(r => setTimeout(r, 3000));
+    for (const item of symbolsToCapture) {
+      console.log(`Navigating to capture ${item.symbol}...`);
+      const targetUrl = `${APP_URL_BASE}?symbol=${item.symbol}`;
+      
+      try {
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        
+        // Wait an extra 3 seconds to ensure lightweight-charts animation finishes completely
+        await new Promise(r => setTimeout(r, 4000));
 
-    console.log('Taking screenshot...');
-    const screenshotBuffer = await page.screenshot({ type: 'png' });
-    
-    console.log('Sending to Telegram...');
-    
-    const targets = targetChatId ? [targetChatId] : Array.from(activeChatIds);
-    
-    for (const chatId of targets) {
-      await bot.sendPhoto(chatId, screenshotBuffer, {
-        caption: `📊 تحديث الشارت - ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`
-      });
+        console.log(`Taking screenshot for ${item.symbol}...`);
+        const screenshotBuffer = await page.screenshot({ type: 'png' });
+        
+        console.log(`Sending ${item.symbol} to Telegram...`);
+        for (const chatId of targets) {
+          await bot.sendPhoto(chatId, screenshotBuffer, {
+            caption: `${item.name}\n🕒 ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to capture/send ${item.symbol}:`, err);
+        // Silently skip to the next asset without sending annoying error messages
+      }
     }
 
-    console.log('Screenshot sent successfully!');
+    console.log('All screenshots sent successfully!');
   } catch (error) {
-    console.error('Error taking/sending screenshot:', error);
-    const targets = targetChatId ? [targetChatId] : Array.from(activeChatIds);
-    for (const chatId of targets) {
-      bot.sendMessage(chatId, '⚠️ عذراً، حدث خطأ أثناء التقاط الصورة. سيتم المحاولة مرة أخرى لاحقاً.');
-    }
+    console.error('Critical Error in browser automation:', error);
+    // Removed the broadcast of the error message to the user!
   } finally {
     if (browser) {
       await browser.close();
@@ -89,10 +95,10 @@ async function takeAndSendScreenshot(targetChatId = null) {
   }
 }
 
-// Schedule the cron job to run every 15 minutes
-cron.schedule('*/15 * * * *', () => {
-  console.log('Running scheduled 15-minute screenshot job...');
-  takeAndSendScreenshot();
+// Schedule the cron job to run every hour at minute 0 (top of the hour)
+cron.schedule('0 * * * *', () => {
+  console.log('Running scheduled hourly screenshot job...');
+  takeAndSendAllScreenshots();
 });
 
 // Set up Express server for UptimeRobot to ping
@@ -103,6 +109,6 @@ app.get('/ping', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}. Ready to receive UptimeRobot pings!`);
+  console.log(`Server is running on port ${PORT}. Ready to receive pings!`);
   console.log('Bot is polling for messages...');
 });

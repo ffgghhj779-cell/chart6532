@@ -208,7 +208,14 @@ export const LiveFinancialChart: React.FC = () => {
   const liveBaseRef = useRef<number>(0);
   const liveMultiplierRef = useRef<number>(0);
 
-  const [symbol, setSymbol] = useState<SymbolType>('XAUEGP');
+  const [symbol, setSymbol] = useState<SymbolType>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlSymbol = params.get('symbol');
+      if (urlSymbol) return urlSymbol as SymbolType;
+    }
+    return 'XAUEGP';
+  });
   const [timeframe, setTimeframe] = useState<string>('30M');
   const [connectionStatus, setConnectionStatus] = useState<'real' | 'simulated' | 'loading'>('loading');
   const [trend, setTrend] = useState({ bullish: 50, bearish: 50 });
