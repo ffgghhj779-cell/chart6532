@@ -75,7 +75,8 @@ async function takeAndSendAllScreenshots(targetChatId = null) {
         console.log(`Sending ${item.symbol} to Telegram...`);
         for (const chatId of targets) {
           await bot.sendPhoto(chatId, screenshotBuffer, {
-            caption: `${item.name}\n🕒 ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`
+            caption: `<b>${item.name}</b>\n🕒 <i>${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}</i>`,
+            parse_mode: 'HTML'
           });
         }
       } catch (err) {
