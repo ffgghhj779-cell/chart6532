@@ -12,13 +12,16 @@ const APP_URL_BASE = 'https://chart6532.vercel.app/';
 
 // Store chat IDs dynamically when users text the bot or add it to groups
 let activeChatIds = new Set();
+if (process.env.PRIMARY_CHAT_ID) {
+  activeChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
+}
 
 // Listen for any message to capture Chat ID (works for private chats AND groups)
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   if (!activeChatIds.has(chatId)) {
     activeChatIds.add(chatId);
-    bot.sendMessage(chatId, 'تم تفعيل البوت هنا بنجاح! 🚀 سيقوم البوت بإرسال (الذهب العالمي، الذهب المحلي، والدولار) تلقائياً كل ساعة.');
+    bot.sendMessage(chatId, `تم تفعيل البوت بنجاح! 🚀\nلضمان عمل البوت للأبد بدون توقف، قم بنسخ هذا الرقم: \`${chatId}\`\nوضعه في إعدادات Render باسم المتغير PRIMARY_CHAT_ID.`);
     console.log(`New chat ID registered: ${chatId}`);
     
     // Trigger an immediate screenshot sequence for the first time
