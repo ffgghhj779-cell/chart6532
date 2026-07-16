@@ -59,8 +59,8 @@ async function takeAndSendAllScreenshots(targetChatId = null) {
     });
 
     const page = await browser.newPage();
-    // Set viewport to mobile size for a clean look
-    await page.setViewport({ width: 400, height: 850, deviceScaleFactor: 2 });
+    // Set viewport to tablet/desktop size so the Support/Resistance UI panel is visible (triggers sm: Tailwind breakpoint)
+    await page.setViewport({ width: 800, height: 1000, deviceScaleFactor: 2 });
     
     for (const item of symbolsToCapture) {
       console.log(`Navigating to capture ${item.symbol}...`);
