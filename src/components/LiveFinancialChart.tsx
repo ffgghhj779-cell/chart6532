@@ -219,6 +219,14 @@ export const LiveFinancialChart: React.FC = () => {
   const [timeframe, setTimeframe] = useState<string>('30M');
   const [connectionStatus, setConnectionStatus] = useState<'real' | 'simulated' | 'loading'>('loading');
   const [trend, setTrend] = useState({ bullish: 50, bearish: 50 });
+  const [calibrationMultiplier, setCalibrationMultiplier] = useState<number>(1);
+  const [calibrationInput, setCalibrationInput] = useState<string>('');
+
+  // Reset calibration when changing symbols
+  useEffect(() => {
+    setCalibrationMultiplier(1);
+    setCalibrationInput('');
+  }, [symbol]);
 
   const levelsRef = useRef<ChartLevels>(GOLD_LEVELS);
   const startPriceRef = useRef<number>(0);
@@ -458,7 +466,7 @@ export const LiveFinancialChart: React.FC = () => {
         const wsUsd = new WebSocket('wss://ws.twelvedata.com/v1/quotes/price?apikey=0c5eb27deca246138223f51b4fdad554');
         binanceWsRef.current = wsBtc; wsRef.current = wsUsd;
         
-        wsBtc.onmessage = (e) => { const d = JSON.parse(e.data); if (d.c) liveBaseRef.current = parseFloat(d.c); if (liveMultiplierRef.current) handleTick(liveBaseRef.current * liveMultiplierRef.current); };
+        wsBtc.onmessage = (e) => { const d = JSON.parse(e.data); if (d.c) liveBaseRef.current = parseFloat(d.c); if (liveMultiplierRef.current) handleTick(liveBaseRef.current * liveMultiplierRef.current * calibrationMultiplier); };
         wsUsd.onopen = () => wsUsd.send(JSON.stringify({ action: 'subscribe', params: { symbols: 'USD/EGP' } }));
         wsUsd.onmessage = (e) => { const d = JSON.parse(e.data); if (d.price) liveMultiplierRef.current = parseFloat(d.price); };
       }
@@ -479,7 +487,7 @@ export const LiveFinancialChart: React.FC = () => {
               if (data.symbol === 'XAU/USD') liveBaseRef.current = parseFloat(data.price);
               if (data.symbol === 'USD/EGP') liveMultiplierRef.current = parseFloat(data.price);
               if (liveBaseRef.current > 0 && liveMultiplierRef.current > 0) {
-                 handleTick((liveBaseRef.current / 31.103) * (21/24) * liveMultiplierRef.current);
+                 handleTick((liveBaseRef.current / 31.103) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
               }
             } else {
               handleTick(parseFloat(data.price));
@@ -493,7 +501,13 @@ export const LiveFinancialChart: React.FC = () => {
     (async () => {
       try {
         const fetchedHistory = await getHistoricalData(symbol, timeframe);
-        const candles = fetchedHistory.map(d => ({ time: d.time as Time, open: d.open, high: d.high, low: d.low, close: d.close }));
+        const candles = fetchedHistory.map(d => ({ 
+          time: d.time as Time, 
+          open: d.open * calibrationMultiplier, 
+          high: d.high * calibrationMultiplier, 
+          low: d.low * calibrationMultiplier, 
+          close: d.close * calibrationMultiplier 
+        }));
         const volumes = fetchedHistory.map(d => ({ time: d.time as Time, value: d.volume, color: d.close >= d.open ? 'rgba(0, 191, 165, 0.25)' : 'rgba(239, 83, 80, 0.25)' }));
 
         series.setData(candles);
@@ -537,7 +551,7 @@ export const LiveFinancialChart: React.FC = () => {
       if (wsRef.current) wsRef.current.close();
       if (binanceWsRef.current) binanceWsRef.current.close();
     };
-  }, [symbol, timeframe, updateLevelsDOM, updatePriceLines]);
+  }, [symbol, timeframe, calibrationMultiplier, updateLevelsDOM, updatePriceLines]);
 
   const assetName = symbol === 'XAUUSD' ? 'GOLD' : symbol === 'WTIUSD' ? 'WTI' : symbol === 'BTCUSDT' ? 'BTC' : symbol === 'USDEGP' ? 'USD (EGP)' : symbol === 'XAUEGP' ? 'GOLD 21k' : 'BTC (EGP)';
   const assetTitle = symbol === 'XAUUSD' ? 'Gold vs US Dollar' : symbol === 'WTIUSD' ? 'WTI Crude Oil' : symbol === 'BTCUSDT' ? 'Bitcoin vs Tether' : symbol === 'USDEGP' ? 'US Dollar vs EGP' : symbol === 'XAUEGP' ? 'Gold Gram 21K vs EGP' : 'Bitcoin vs EGP';
@@ -572,6 +586,31 @@ export const LiveFinancialChart: React.FC = () => {
           </select>
           <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 group-hover:text-white"><svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path d="M6 9l6 6 6-6"></path></svg></div>
         </div>
+
+        { (symbol === 'XAUEGP' || symbol === 'BTCEGP') && (
+          <div className="flex shrink-0 items-center bg-[#0b0e14] border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-lg group relative">
+            <input 
+              type="number" 
+              placeholder="السعر الحقيقي.." 
+              value={calibrationInput}
+              onChange={e => setCalibrationInput(e.target.value)}
+              className="w-[70px] sm:w-[90px] bg-transparent text-[#FFF100] text-[10px] sm:text-xs font-mono font-bold outline-none placeholder-gray-600"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && calibrationInput && currentCandleRef.current) {
+                  const target = parseFloat(calibrationInput);
+                  if (target > 0) {
+                     const currentRaw = currentCandleRef.current.close / calibrationMultiplier;
+                     setCalibrationMultiplier(target / currentRaw);
+                     setCalibrationInput('');
+                  }
+                }
+              }}
+            />
+            <div className="absolute top-[120%] left-1/2 -translate-x-1/2 bg-[#07090e] border border-white/10 text-[9px] text-gray-400 p-2 rounded shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
+              اكتب سعر الصاغة واضغط Enter لمعايرة الشارت
+            </div>
+          </div>
+        )}
 
         <div className="flex shrink-0 items-center space-x-1.5 sm:space-x-2 bg-[#0b0e14] border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-lg ring-1 ring-white/5">
           <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor] ${connectionStatus === 'real' ? 'bg-[#00bfa5] text-[#00bfa5]' : connectionStatus === 'loading' ? 'bg-[#fb8c00] text-[#fb8c00]' : 'bg-[#ef5350] text-[#ef5350]'}`}></div>
