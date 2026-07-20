@@ -222,9 +222,18 @@ export const LiveFinancialChart: React.FC = () => {
   const [calibrationMultiplier, setCalibrationMultiplier] = useState<number>(1);
   const [calibrationInput, setCalibrationInput] = useState<string>('');
 
-  // Reset calibration when changing symbols
+  // Reset calibration when changing symbols and load global calibration from Supabase
   useEffect(() => {
-    setCalibrationMultiplier(1);
+    (async () => {
+       if (symbol === 'XAUEGP' || symbol === 'BTCEGP') {
+           const { data: calData } = await supabase.from('historical_candles').select('close').eq('symbol', `${symbol}_CALIB_MULT`).limit(1);
+           if (calData && calData.length > 0 && calData[0].close > 0) {
+              setCalibrationMultiplier(calData[0].close);
+              return;
+           }
+       }
+       setCalibrationMultiplier(1);
+    })();
     setCalibrationInput('');
   }, [symbol]);
 
@@ -524,10 +533,19 @@ export const LiveFinancialChart: React.FC = () => {
            liveBaseRef.current = symbol === 'XAUEGP' ? startPrice / liveMultiplierRef.current * (24/21) * 31.103 : startPrice / liveMultiplierRef.current;
         }
 
-        const historyHigh = Math.max(...candles.map(c => c.high));
-        const historyLow = Math.min(...candles.map(c => c.low));
+        // Calculate true daily pivot using previous day's H/L/C
+        let lookback = 48; // 30M default
+        if (timeframe === '15M') lookback = 96;
+        if (timeframe === '1H') lookback = 24;
+        if (timeframe === '4H') lookback = 6;
+        if (timeframe === '1D') lookback = 1;
+
+        const previousDayCandles = candles.slice(Math.max(0, candles.length - lookback - 1), Math.max(1, candles.length - 1));
+        const historyHigh = previousDayCandles.length > 0 ? Math.max(...previousDayCandles.map(c => c.high)) : startPrice;
+        const historyLow = previousDayCandles.length > 0 ? Math.min(...previousDayCandles.map(c => c.low)) : startPrice;
+        const previousClose = previousDayCandles.length > 0 ? previousDayCandles[previousDayCandles.length - 1].close : startPrice;
         
-        const newLevels = calculateProfessionalLevels(historyHigh, historyLow, startPrice);
+        const newLevels = calculateProfessionalLevels(historyHigh, historyLow, previousClose);
         updateLevelsDOM(newLevels);
         updatePriceLines(newLevels);
 
@@ -600,8 +618,13 @@ export const LiveFinancialChart: React.FC = () => {
                   const target = parseFloat(calibrationInput);
                   if (target > 0) {
                      const currentRaw = currentCandleRef.current.close / calibrationMultiplier;
-                     setCalibrationMultiplier(target / currentRaw);
+                     const newMult = target / currentRaw;
+                     setCalibrationMultiplier(newMult);
                      setCalibrationInput('');
+                     // Save to DB so Telegram Bot can read it
+                     supabase.from('historical_candles').delete().eq('symbol', `${symbol}_CALIB_MULT`).then(() => {
+                        supabase.from('historical_candles').insert([{ symbol: `${symbol}_CALIB_MULT`, timeframe: 'GLOBAL', timestamp: 0, close: newMult, open: 0, high: 0, low: 0, volume: 0 }]).then();
+                     });
                   }
                 }
               }}
@@ -618,7 +641,7 @@ export const LiveFinancialChart: React.FC = () => {
         </div>
       </div>
 
-      <div className="absolute top-[64px] sm:top-6 left-4 right-4 sm:right-auto sm:left-6 z-10 bg-[#07090e]/80 sm:bg-[#07090e]/70 backdrop-blur-2xl sm:backdrop-blur-3xl border border-white/5 rounded-2xl p-4 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8),_inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/5 text-white sm:w-[340px] pointer-events-none flex flex-col gap-4 sm:gap-7 transition-all duration-500">
+      <div className="absolute top-[64px] sm:top-[88px] left-4 right-4 sm:right-auto sm:left-6 z-10 bg-[#07090e]/80 sm:bg-[#07090e]/70 backdrop-blur-2xl sm:backdrop-blur-3xl border border-white/5 rounded-2xl p-4 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8),_inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/5 text-white sm:w-[340px] pointer-events-none flex flex-col gap-4 sm:gap-7 transition-all duration-500">
         <div className="flex justify-between items-center sm:items-start">
           <div className="space-y-0.5 sm:space-y-1.5">
             <h1 className="text-white font-extrabold text-[22px] sm:text-[28px] tracking-tighter leading-none drop-shadow-[0_0_12px_rgba(255,255,255,0.1)]">{symbol}</h1>
