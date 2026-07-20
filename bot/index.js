@@ -10,34 +10,49 @@ const bot = new TelegramBot(token, { polling: true });
 // Vercel app URL base
 const APP_URL_BASE = 'https://chart6532.vercel.app/';
 
-// Store chat IDs dynamically when users text the bot or add it to groups
-let activeChatIds = new Set();
+// Store chat IDs dynamically from Environment Variables (Admin Whitelist)
+let allowedChatIds = new Set();
+
+// Add the Primary Admin ID
 if (process.env.PRIMARY_CHAT_ID) {
-  activeChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
+  allowedChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
 }
 
-// Listen for any message to capture Chat ID (works for private chats AND groups)
+// Add any other allowed IDs (separated by commas)
+if (process.env.ALLOWED_CHAT_IDS) {
+  const ids = process.env.ALLOWED_CHAT_IDS.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+  ids.forEach(id => allowedChatIds.add(id));
+}
+
+// Listen for any message to handle commands and security
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
-  if (!activeChatIds.has(chatId)) {
-    activeChatIds.add(chatId);
-    bot.sendMessage(chatId, `تم تفعيل البوت بنجاح! 🚀\nلضمان عمل البوت للأبد بدون توقف، قم بنسخ هذا الرقم: \`${chatId}\`\nوضعه في إعدادات Render باسم المتغير PRIMARY_CHAT_ID.`);
-    console.log(`New chat ID registered: ${chatId}`);
-    
-    // Trigger an immediate screenshot sequence for the first time
-    bot.sendMessage(chatId, 'جاري التقاط أول دفعة من السكرين شوت، يرجى الانتظار دقيقة... ⏳');
-    takeAndSendAllScreenshots(chatId);
+  const text = msg.text || '';
+  
+  if (allowedChatIds.has(chatId)) {
+    if (text === '/start') {
+      bot.sendMessage(chatId, `مرحباً بك! البوت متصل ومؤمن بالكامل. 🚀\nتصلك التحديثات تلقائياً كل ساعة، أو أرسل /now لأخذ سكرينات فورية في أي وقت.`);
+    } else if (text === '/now') {
+      bot.sendMessage(chatId, 'جاري التقاط السكرينات الآن، يرجى الانتظار دقيقة... ⏳');
+      takeAndSendAllScreenshots(chatId);
+    } else {
+      bot.sendMessage(chatId, `البوت يعمل في الخلفية بنجاح. أرسل /now إذا كنت تريد التحديث فوراً.`);
+    }
+  } else {
+    // SECURITY: Reject unauthorized users!
+    bot.sendMessage(chatId, `⛔ عذراً، هذا البوت خاص ومؤمن وغير مصرح لك باستخدامه.\n\nإذا كنت تعرف المالك، أرسل له رقمك التعريفي هذا: \`${chatId}\` ليقوم بإضافتك إلى القائمة البيضاء.`);
+    console.log(`Unauthorized access attempt blocked from Chat ID: ${chatId}`);
   }
 });
 
 // Function to take screenshot for a specific symbol and send it
 async function takeAndSendAllScreenshots(targetChatId = null) {
-  if (activeChatIds.size === 0 && !targetChatId) {
-    console.log('No active chats registered yet. Skipping screenshot.');
+  if (allowedChatIds.size === 0 && !targetChatId) {
+    console.log('No allowed chats registered in Environment Variables. Skipping screenshot.');
     return;
   }
 
-  const targets = targetChatId ? [targetChatId] : Array.from(activeChatIds);
+  const targets = targetChatId ? [targetChatId] : Array.from(allowedChatIds);
   const symbolsToCapture = [
     { symbol: 'XAUUSD', name: '🥇 الذهب العالمي (XAU/USD)' },
     { symbol: 'XAUEGP', name: '🇪🇬 الذهب المحلي عيار 21 (EGP)' },
@@ -59,7 +74,7 @@ async function takeAndSendAllScreenshots(targetChatId = null) {
     });
 
     const page = await browser.newPage();
-    // Set viewport to tablet/desktop size so the Support/Resistance UI panel is visible (triggers sm: Tailwind breakpoint)
+    // Set viewport to tablet/desktop size so the Support/Resistance UI panel is visible
     await page.setViewport({ width: 800, height: 1000, deviceScaleFactor: 2 });
     
     for (const item of symbolsToCapture) {
@@ -91,7 +106,6 @@ async function takeAndSendAllScreenshots(targetChatId = null) {
     console.log('All screenshots sent successfully!');
   } catch (error) {
     console.error('Critical Error in browser automation:', error);
-    // Removed the broadcast of the error message to the user!
   } finally {
     if (browser) {
       await browser.close();
@@ -101,18 +115,18 @@ async function takeAndSendAllScreenshots(targetChatId = null) {
 
 // Schedule the cron job to run every hour at minute 0 (top of the hour)
 cron.schedule('0 * * * *', () => {
-  console.log('Running scheduled hourly screenshot job...');
+  console.log('Running scheduled hourly screenshot job for allowed chats...');
   takeAndSendAllScreenshots();
 });
 
 // Set up Express server for UptimeRobot to ping
 const app = express();
 app.get('/ping', (req, res) => {
-  res.status(200).send('Bot is alive and running! 🤖');
+  res.status(200).send('Secure Bot is alive and running! 🤖🔒');
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}. Ready to receive pings!`);
-  console.log('Bot is polling for messages...');
+  console.log('Secure Bot is polling for messages...');
 });
