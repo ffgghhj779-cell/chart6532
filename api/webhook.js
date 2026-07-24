@@ -51,38 +51,37 @@ export default async function handler(req, res) {
   }
 
   if (text.startsWith('/now') || text === '/xau' || text === '/btc' || text === '/egp') {
-    // Send immediate loading message so Telegram knows we got it
-    await sendMessage(chatId, '📸 جاري تجهيز الشارت اللحظي... الرجاء الانتظار قليلاً!');
+    await sendMessage(chatId, '📸 جاري تجهيز الشارتات المطلوبة... الرجاء الانتظار ثواني معدودة!');
     
-    let symbol = 'XAUEGP';
-    if (text === '/xau') symbol = 'XAUUSD';
-    if (text === '/btc') symbol = 'BTCEGP';
+    let symbols = [];
+    if (text.startsWith('/now')) symbols = ['XAUEGP', 'XAUUSD', 'BTCEGP'];
+    else if (text === '/xau') symbols = ['XAUUSD'];
+    else if (text === '/btc') symbols = ['BTCEGP'];
+    else if (text === '/egp') symbols = ['XAUEGP'];
 
-    const targetUrl = `https://chart6532.vercel.app/?symbol=${symbol}`;
-    // Microlink API to take screenshot with a 3.5s delay to ensure chart loads
-    const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(targetUrl)}&screenshot=true&meta=false&waitForTimeout=3500`;
-    
-    let imgUrl = null;
-    try {
-      const response = await fetch(microlinkUrl);
-      const data = await response.json();
-      if (data?.data?.screenshot?.url) {
-         imgUrl = data.data.screenshot.url;
-      }
-    } catch (e) {
-      console.log('Microlink failed, falling back to Thum.io');
-    }
-    
-    if (!imgUrl) {
-       // Fallback to Thum.io if Microlink is down or rate limited
-       imgUrl = `https://image.thum.io/get/width/800/crop/1200/wait/4/${targetUrl}`;
-    }
-    
-    if (imgUrl) {
-      await sendPhoto(chatId, imgUrl, `✅ شارت ${symbol} اللحظي`);
-    } else {
-      await sendMessage(chatId, '❌ عذراً، حدث خطأ أثناء التقاط الصورة من الخادم المساعد.');
-    }
+    const promises = symbols.map(async (symbol) => {
+       const targetUrl = `https://chart6532.vercel.app/?symbol=${symbol}`;
+       const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(targetUrl)}&screenshot=true&meta=false&waitForTimeout=3500`;
+       
+       let imgUrl = null;
+       try {
+         const response = await fetch(microlinkUrl);
+         const data = await response.json();
+         if (data?.data?.screenshot?.url) imgUrl = data.data.screenshot.url;
+       } catch (e) {
+         console.log('Microlink failed, falling back to Thum.io');
+       }
+       
+       if (!imgUrl) {
+          imgUrl = `https://image.thum.io/get/width/800/crop/1200/wait/4/${targetUrl}`;
+       }
+       
+       if (imgUrl) {
+         await sendPhoto(chatId, imgUrl, `✅ شارت ${symbol} اللحظي`);
+       }
+    });
+
+    await Promise.all(promises);
   }
 
   return res.status(200).send('OK');
