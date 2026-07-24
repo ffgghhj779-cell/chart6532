@@ -46,7 +46,7 @@ export default async function handler(req, res) {
 
   // Command Routing
   if (text.startsWith('/start')) {
-     await sendMessage(chatId, 'أهلاً بك! البوت متصل بالخادم السحابي (Vercel) بنجاح 🚀\nاستخدم الأوامر التالية:\n/now - الشارت اللحظي\n/xau - شارت أونصة الدولار\n/btc - شارت البيتكوين\n/egp - شارت الذهب المحلي');
+     await sendMessage(chatId, 'أهلاً بك! البوت متصل بالخادم السحابي (Vercel) بنجاح 🚀\nاستخدم الأوامر التالية:\n/now - جميع الشارتات اللحظية\n/xau - شارت أونصة الدولار\n/usd - شارت الدولار مقابل الجنيه\n/egp - شارت الذهب المحلي');
      return res.status(200).send('OK');
   }
 
@@ -54,9 +54,9 @@ export default async function handler(req, res) {
     await sendMessage(chatId, '📸 جاري تجهيز الشارتات المطلوبة... الرجاء الانتظار ثواني معدودة!');
     
     let symbols = [];
-    if (text.startsWith('/now')) symbols = ['XAUEGP', 'XAUUSD', 'BTCEGP'];
+    if (text.startsWith('/now')) symbols = ['XAUEGP', 'XAUUSD', 'USDEGP'];
     else if (text === '/xau') symbols = ['XAUUSD'];
-    else if (text === '/btc') symbols = ['BTCEGP'];
+    else if (text === '/usd') symbols = ['USDEGP'];
     else if (text === '/egp') symbols = ['XAUEGP'];
 
     const promises = symbols.map(async (symbol) => {

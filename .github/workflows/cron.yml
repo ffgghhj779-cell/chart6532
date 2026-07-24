@@ -17,6 +17,6 @@ jobs:
         run: |
           curl "https://chart6532.vercel.app/api/cron?key=7737655407&symbol=XAUUSD"
           sleep 5
-      - name: Snapshot BTCEGP
+      - name: Snapshot USDEGP
         run: |
-          curl "https://chart6532.vercel.app/api/cron?key=7737655407&symbol=BTCEGP"
+          curl "https://chart6532.vercel.app/api/cron?key=7737655407&symbol=USDEGP"
