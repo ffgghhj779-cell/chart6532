@@ -125,7 +125,7 @@ app.get('/ping', (req, res) => {
   res.status(200).send('Secure Bot is alive and running! 🤖🔒');
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7860;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}. Ready to receive pings!`);
   console.log('Secure Bot is polling for messages...');
