@@ -220,21 +220,69 @@ export const LiveFinancialChart: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'real' | 'simulated' | 'loading'>('loading');
   const [trend, setTrend] = useState({ bullish: 50, bearish: 50 });
   const [calibrationMultiplier, setCalibrationMultiplier] = useState<number>(1);
-  const [calibrationInput, setCalibrationInput] = useState<string>('');
-
-  // Reset calibration when changing symbols and load global calibration from Supabase
+  // Auto-Calibration from Live Market
   useEffect(() => {
-    (async () => {
-       if (symbol === 'XAUEGP' || symbol === 'BTCEGP') {
-           const { data: calData } = await supabase.from('historical_candles').select('close').eq('symbol', `${symbol}_CALIB_MULT`).limit(1);
-           if (calData && calData.length > 0 && calData[0].close > 0) {
-              setCalibrationMultiplier(calData[0].close);
-              return;
+    let isActive = true;
+    
+    const fetchTrueEgyptianGoldPrice = async () => {
+      try {
+        const url = encodeURIComponent('https://egypt.gold-price-today.com/');
+        const res = await fetch(`https://api.allorigins.win/get?url=${url}`);
+        const data = await res.json();
+        const html = data.contents;
+        const match = html.match(/عيار 21[\s\S]*?<td.*?[\s\S]*?<span[^>]*font-bold[^>]*>([0-9,]+)<\/span>/i);
+        if (match) {
+          return parseFloat(match[1].replace(/,/g, ''));
+        }
+      } catch (e) {
+        console.error('Failed to auto-fetch true gold price', e);
+      }
+      return null;
+    };
+
+    const calibrate = async () => {
+       if (symbol === 'XAUEGP') {
+           const truePrice = await fetchTrueEgyptianGoldPrice();
+           
+           setCalibrationMultiplier(prevMult => {
+               if (truePrice && currentCandleRef.current && isActive) {
+                   const currentRaw = currentCandleRef.current.close / prevMult;
+                   const newMult = truePrice / currentRaw;
+                   if (!isNaN(newMult) && newMult > 0 && newMult !== prevMult) {
+                       // Cache it to Supabase for the bot fallback just in case
+                       supabase.from('historical_candles').delete().eq('symbol', `${symbol}_CALIB_MULT`).then(() => {
+                          supabase.from('historical_candles').insert([{ symbol: `${symbol}_CALIB_MULT`, timeframe: 'GLOBAL', timestamp: 0, close: newMult, open: 0, high: 0, low: 0, volume: 0 }]).then();
+                       });
+                       return newMult;
+                   }
+               }
+               return prevMult;
+           });
+           
+           if (!truePrice && isActive) {
+               // Fallback to Supabase cache if allorigins fails
+               const { data: calData } = await supabase.from('historical_candles').select('close').eq('symbol', `${symbol}_CALIB_MULT`).limit(1);
+               if (calData && calData.length > 0 && calData[0].close > 0) {
+                  setCalibrationMultiplier(calData[0].close);
+               }
            }
+       } else if (symbol === 'BTCEGP') {
+           const { data: calData } = await supabase.from('historical_candles').select('close').eq('symbol', `${symbol}_CALIB_MULT`).limit(1);
+           if (calData && calData.length > 0 && calData[0].close > 0 && isActive) {
+              setCalibrationMultiplier(calData[0].close);
+           } else {
+              if (isActive) setCalibrationMultiplier(1);
+           }
+       } else {
+           if (isActive) setCalibrationMultiplier(1);
        }
-       setCalibrationMultiplier(1);
-    })();
-    setCalibrationInput('');
+    };
+    
+    calibrate();
+    
+    // Auto-refresh calibration every 2 minutes
+    const interval = setInterval(calibrate, 120000);
+    return () => { isActive = false; clearInterval(interval); };
   }, [symbol]);
 
   const levelsRef = useRef<ChartLevels>(GOLD_LEVELS);
@@ -605,35 +653,7 @@ export const LiveFinancialChart: React.FC = () => {
           <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 group-hover:text-white"><svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path d="M6 9l6 6 6-6"></path></svg></div>
         </div>
 
-        { (symbol === 'XAUEGP' || symbol === 'BTCEGP') && (
-          <div className="flex shrink-0 items-center bg-[#0b0e14] border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-lg group relative">
-            <input 
-              type="number" 
-              placeholder="السعر الحقيقي.." 
-              value={calibrationInput}
-              onChange={e => setCalibrationInput(e.target.value)}
-              className="w-[70px] sm:w-[90px] bg-transparent text-[#FFF100] text-[10px] sm:text-xs font-mono font-bold outline-none placeholder-gray-600"
-              onKeyDown={e => {
-                if (e.key === 'Enter' && calibrationInput && currentCandleRef.current) {
-                  const target = parseFloat(calibrationInput);
-                  if (target > 0) {
-                     const currentRaw = currentCandleRef.current.close / calibrationMultiplier;
-                     const newMult = target / currentRaw;
-                     setCalibrationMultiplier(newMult);
-                     setCalibrationInput('');
-                     // Save to DB so Telegram Bot can read it
-                     supabase.from('historical_candles').delete().eq('symbol', `${symbol}_CALIB_MULT`).then(() => {
-                        supabase.from('historical_candles').insert([{ symbol: `${symbol}_CALIB_MULT`, timeframe: 'GLOBAL', timestamp: 0, close: newMult, open: 0, high: 0, low: 0, volume: 0 }]).then();
-                     });
-                  }
-                }
-              }}
-            />
-            <div className="absolute top-[120%] left-1/2 -translate-x-1/2 bg-[#07090e] border border-white/10 text-[9px] text-gray-400 p-2 rounded shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
-              اكتب سعر الصاغة واضغط Enter لمعايرة الشارت
-            </div>
-          </div>
-        )}
+
 
         <div className="flex shrink-0 items-center space-x-1.5 sm:space-x-2 bg-[#0b0e14] border border-white/5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg shadow-lg ring-1 ring-white/5">
           <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor] ${connectionStatus === 'real' ? 'bg-[#00bfa5] text-[#00bfa5]' : connectionStatus === 'loading' ? 'bg-[#fb8c00] text-[#fb8c00]' : 'bg-[#ef5350] text-[#ef5350]'}`}></div>
