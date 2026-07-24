@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chat, photo: photoUrl, caption: caption })
+      body: JSON.stringify({ chat_id: chat, photo: photoUrl, caption: caption, parse_mode: 'HTML' })
     });
   };
 
@@ -77,7 +77,16 @@ export default async function handler(req, res) {
        }
        
        if (imgUrl) {
-         await sendPhoto(chatId, imgUrl, `✅ شارت ${symbol} اللحظي`);
+         let captionTitle = '';
+         if (symbol === 'XAUUSD') captionTitle = '🥇 الذهب العالمي (XAU/USD)';
+         else if (symbol === 'XAUEGP') captionTitle = '🇪🇬 الذهب المحلي عيار 21 (EGP)';
+         else if (symbol === 'USDEGP') captionTitle = '💵 الدولار مقابل الجنيه (USD/EGP)';
+         else captionTitle = `✅ شارت ${symbol} اللحظي`;
+         
+         const timeString = new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' });
+         const finalCaption = `<b>${captionTitle}</b>\n🕒 <i>${timeString}</i>`;
+
+         await sendPhoto(chatId, imgUrl, finalCaption);
        }
     });
 

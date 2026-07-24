@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chat, photo: photoUrl, caption: caption })
+      body: JSON.stringify({ chat_id: chat, photo: photoUrl, caption: caption, parse_mode: 'HTML' })
     });
   };
 
@@ -46,9 +46,18 @@ export default async function handler(req, res) {
   }
   
   if (imgUrl) {
+    let captionTitle = '';
+    if (symbol === 'XAUUSD') captionTitle = '🥇 الذهب العالمي (XAU/USD)';
+    else if (symbol === 'XAUEGP') captionTitle = '🇪🇬 الذهب المحلي عيار 21 (EGP)';
+    else if (symbol === 'USDEGP') captionTitle = '💵 الدولار مقابل الجنيه (USD/EGP)';
+    else captionTitle = `✅ شارت ${symbol} اللحظي`;
+    
+    const timeString = new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' });
+    const finalCaption = `<b>${captionTitle}</b>\n🕒 <i>${timeString}</i>`;
+
     // Send to all allowed users concurrently
     const promises = Array.from(allowedChatIds).map(chatId => 
-       sendPhoto(chatId, imgUrl, `✅ تحديث تلقائي كل ساعة: شارت ${symbol} اللحظي ⏰`)
+       sendPhoto(chatId, imgUrl, finalCaption)
     );
     await Promise.all(promises);
     return res.status(200).send(`Cron job executed successfully for ${symbol}`);
