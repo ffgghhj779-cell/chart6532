@@ -226,16 +226,13 @@ export const LiveFinancialChart: React.FC = () => {
     
     const fetchTrueEgyptianGoldPrice = async () => {
       try {
-        const url = encodeURIComponent('https://egypt.gold-price-today.com/');
-        const res = await fetch(`https://api.allorigins.win/get?url=${url}`);
+        const res = await fetch('/api/gold-price');
         const data = await res.json();
-        const html = data.contents;
-        const match = html.match(/عيار 21[\s\S]*?<td.*?[\s\S]*?<span[^>]*font-bold[^>]*>([0-9,]+)<\/span>/i);
-        if (match) {
-          return parseFloat(match[1].replace(/,/g, ''));
+        if (data && data.price > 0) {
+          return parseFloat(data.price);
         }
       } catch (e) {
-        console.error('Failed to auto-fetch true gold price', e);
+        console.error('Failed to auto-fetch true gold price from /api/gold-price', e);
       }
       return null;
     };
