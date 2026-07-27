@@ -224,22 +224,22 @@ export const LiveFinancialChart: React.FC = () => {
   useEffect(() => {
     let isActive = true;
     
-    const fetchTrueEgyptianGoldPrice = async () => {
+    const fetchPriceData = async () => {
       try {
         const res = await fetch('/api/gold-price');
         const data = await res.json();
-        if (data && data.price > 0) {
-          return parseFloat(data.price);
-        }
+        if (data && data.success) return data;
       } catch (e) {
-        console.error('Failed to auto-fetch true gold price from /api/gold-price', e);
+        console.error('Failed to auto-fetch price data from /api/gold-price', e);
       }
       return null;
     };
 
     const calibrate = async () => {
+       const priceData = await fetchPriceData();
+
        if (symbol === 'XAUEGP') {
-           const truePrice = await fetchTrueEgyptianGoldPrice();
+           const truePrice = priceData?.price > 0 ? parseFloat(priceData.price) : null;
            
            setCalibrationMultiplier(prevMult => {
                if (truePrice && currentCandleRef.current && isActive) {
@@ -257,12 +257,26 @@ export const LiveFinancialChart: React.FC = () => {
            });
            
            if (!truePrice && isActive) {
-               // Fallback to Supabase cache if allorigins fails
+               // Fallback to Supabase cache
                const { data: calData } = await supabase.from('historical_candles').select('close').eq('symbol', `${symbol}_CALIB_MULT`).limit(1);
                if (calData && calData.length > 0 && calData[0].close > 0) {
                   setCalibrationMultiplier(calData[0].close);
                }
            }
+       } else if (symbol === 'USDEGP') {
+           // Use Yahoo Finance / TwelveData USD/EGP from our API
+           const trueUsdEgp = priceData?.usdEgp?.price > 0 ? parseFloat(priceData.usdEgp.price) : null;
+           
+           setCalibrationMultiplier(prevMult => {
+               if (trueUsdEgp && currentCandleRef.current && isActive) {
+                   const currentRaw = currentCandleRef.current.close / prevMult;
+                   const newMult = trueUsdEgp / currentRaw;
+                   if (!isNaN(newMult) && newMult > 0 && Math.abs(newMult - prevMult) > 0.001) {
+                       return newMult;
+                   }
+               }
+               return prevMult;
+           });
        } else if (symbol === 'BTCEGP') {
            const { data: calData } = await supabase.from('historical_candles').select('close').eq('symbol', `${symbol}_CALIB_MULT`).limit(1);
            if (calData && calData.length > 0 && calData[0].close > 0 && isActive) {

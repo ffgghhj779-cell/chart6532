@@ -1,113 +1,187 @@
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+  const TIMEOUT_MS = 7000;
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+  ]);
 
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
-    'Cache-Control': 'no-cache'
+  // ─── 1. Fetch Gold (XAU/USD) ─────────────────────────────────────────────
+  const fetchGoldFromGoldApi = async () => {
+    try {
+      const res = await withTimeout(
+        fetch('https://api.gold-api.com/price/XAU', { headers: { Accept: 'application/json' } }),
+        TIMEOUT_MS
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const price = Number(data?.price ?? data?.Price);
+      if (!price || price < 1000) return null;
+      return { price, changePct: Number(data?.chp ?? 0) };
+    } catch { return null; }
   };
 
-  const trySource1 = async () => {
+  const fetchGoldFromMetalsLive = async () => {
     try {
-      const response = await fetch('https://www.gold-price-today.com/egypt/', { headers, next: { revalidate: 60 } });
-      if (!response.ok) return null;
-      const html = await response.text();
-      
-      // Try JSON-LD schema first
+      const res = await withTimeout(
+        fetch('https://api.metals.live/v1/spot', { headers: { Accept: 'application/json' } }),
+        TIMEOUT_MS
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : [data];
+      const gold = arr[0]?.gold;
+      if (!gold) return null;
+      return { price: Number(gold), changePct: 0 };
+    } catch { return null; }
+  };
+
+  const fetchYahooV8 = async (symbol) => {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
+      const res = await withTimeout(
+        fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            Referer: 'https://finance.yahoo.com',
+          }
+        }),
+        TIMEOUT_MS
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (!meta) return null;
+      const price = meta.regularMarketPrice ?? meta.previousClose ?? 0;
+      const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+      const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      return { price, changePct };
+    } catch { return null; }
+  };
+
+  const fetchYahooV7 = async (symbol) => {
+    try {
+      const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
+      const res = await withTimeout(
+        fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)', Accept: 'application/json' }
+        }),
+        TIMEOUT_MS
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const quote = data?.quoteResponse?.result?.[0];
+      if (!quote) return null;
+      return { price: quote.regularMarketPrice ?? 0, changePct: quote.regularMarketChangePercent ?? 0 };
+    } catch { return null; }
+  };
+
+  // ─── 2. Fetch USD/EGP ────────────────────────────────────────────────────
+  const fetchUsdEgpFromTwelveData = async () => {
+    try {
+      const apiKey = process.env.TWELVEDATA_API_KEY;
+      if (!apiKey) return null;
+      const res = await withTimeout(
+        fetch(`https://api.twelvedata.com/time_series?symbol=USD/EGP&interval=1h&outputsize=1&apikey=${apiKey}&format=JSON`),
+        5000
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.values && data.values.length > 0) {
+        const price = parseFloat(data.values[0].close);
+        if (price > 40 && price < 200) return { price, changePct: 0 };
+      }
+      return null;
+    } catch { return null; }
+  };
+
+  const fetchUsdEgpFromOpenEr = async () => {
+    try {
+      const res = await withTimeout(
+        fetch('https://open.er-api.com/v6/latest/USD', { headers: { Accept: 'application/json' } }),
+        TIMEOUT_MS
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const rate = data?.rates?.EGP;
+      if (!rate) return null;
+      return { price: Number(rate), changePct: 0 };
+    } catch { return null; }
+  };
+
+  // ─── 3. Fetch Egyptian Gold 21K price from local sites ─────────────────
+  const fetchLocalGoldSite = async () => {
+    try {
+      const res = await withTimeout(
+        fetch('https://www.gold-price-today.com/egypt/', {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        }),
+        TIMEOUT_MS
+      );
+      if (!res.ok) return null;
+      const html = await res.text();
       const schemaMatch = html.match(/"price"\s*:\s*"([0-9,]+)"\s*,\s*"priceCurrency"\s*:\s*"EGP"/i);
-      if (schemaMatch && schemaMatch[1]) {
+      if (schemaMatch) {
         const p = parseFloat(schemaMatch[1].replace(/,/g, ''));
         if (p > 3000 && p < 15000) return p;
       }
-
-      // Try text match around عيار 21
-      const textMatch = html.match(/عيار\s*21[\s\S]{1,300}?([0-9,]{4,5})/i);
-      if (textMatch && textMatch[1]) {
-        const p = parseFloat(textMatch[1].replace(/,/g, ''));
-        if (p > 3000 && p < 15000) return p;
-      }
-    } catch (e) {
-      console.error('Source 1 error:', e.message);
-    }
-    return null;
+      return null;
+    } catch { return null; }
   };
 
-  const trySource2 = async () => {
-    try {
-      const response = await fetch('https://goldpriceegy.com/', { headers, next: { revalidate: 60 } });
-      if (!response.ok) return null;
-      const html = await response.text();
-      const match = html.match(/عيار\s*21[\s\S]{1,300}?([0-9,]{4,5})/i);
-      if (match && match[1]) {
-        const p = parseFloat(match[1].replace(/,/g, ''));
-        if (p > 3000 && p < 15000) return p;
-      }
-    } catch (e) {
-      console.error('Source 2 error:', e.message);
-    }
-    return null;
-  };
+  // ─── Run all in parallel ─────────────────────────────────────────────────
+  const [
+    goldGoldApi, goldMetals, goldYahooV8, goldYahooV7,
+    egpTwelve, egpYahooV8, egpYahooV7, egpOpenEr,
+    localGoldSitePrice
+  ] = await Promise.all([
+    fetchGoldFromGoldApi(),
+    fetchGoldFromMetalsLive(),
+    fetchYahooV8('GC=F'),
+    fetchYahooV7('GC=F'),
+    fetchUsdEgpFromTwelveData(),
+    fetchYahooV8('USDEGP=X'),
+    fetchYahooV7('USDEGP=X'),
+    fetchUsdEgpFromOpenEr(),
+    fetchLocalGoldSite(),
+  ]);
 
-  const trySource3 = async () => {
-    try {
-      const response = await fetch('https://gold-price-live.com/21-karat-gold-price-in-egypt/', { headers, next: { revalidate: 60 } });
-      if (!response.ok) return null;
-      const html = await response.text();
-      const match = html.match(/([0-9,]{4,5})\s*(?:جنيه|EGP|ج\.م)/i);
-      if (match && match[1]) {
-        const p = parseFloat(match[1].replace(/,/g, ''));
-        if (p > 3000 && p < 15000) return p;
-      }
-    } catch (e) {
-      console.error('Source 3 error:', e.message);
-    }
-    return null;
-  };
+  // ─── Pick best source ───────────────────────────────────────────────────
+  const gold   = goldGoldApi ?? goldMetals ?? goldYahooV8 ?? goldYahooV7 ?? { price: 3345, changePct: 0 };
+  const usdEgp = egpTwelve ?? egpYahooV8 ?? egpYahooV7 ?? egpOpenEr ?? { price: 50.85, changePct: 0 };
 
-  let price = await trySource1();
-  let source = 'gold-price-today.com';
+  // Egyptian gold: either from local site directly, or calculated
+  const calcPrice = Math.round((gold.price / 31.1035) * usdEgp.price * (21 / 24));
+  const egyptianGoldPrice = localGoldSitePrice ?? calcPrice;
 
-  if (!price) {
-    price = await trySource2();
-    source = 'goldpriceegy.com';
-  }
+  const goldSource = goldGoldApi ? 'gold-api.com' : goldMetals ? 'metals.live' : goldYahooV8 ? 'yahoo-v8(GC=F)' : goldYahooV7 ? 'yahoo-v7(GC=F)' : 'fallback';
+  const egpSource  = egpTwelve ? 'twelve-data' : egpYahooV8 ? 'yahoo-v8(USDEGP=X)' : egpYahooV7 ? 'yahoo-v7(USDEGP=X)' : egpOpenEr ? 'open.er-api' : 'fallback';
+  const localGoldSource = localGoldSitePrice ? 'gold-price-today.com(direct)' : 'calculated';
 
-  if (!price) {
-    price = await trySource3();
-    source = 'gold-price-live.com';
-  }
-
-  if (price) {
-    return res.status(200).json({
-      success: true,
-      price: price,
-      currency: 'EGP',
-      karat: 21,
-      source: source,
-      timestamp: Date.now()
-    });
-  } else {
-    // Ultimate fallback if all external sites block/fail: return 6000 as approximate market price
-    return res.status(200).json({
-      success: false,
-      price: 6000,
-      currency: 'EGP',
-      karat: 21,
-      source: 'fallback-approx',
-      timestamp: Date.now()
-    });
-  }
+  return res.status(200).json({
+    success: true,
+    // Egyptian gold 21K
+    price: egyptianGoldPrice,
+    currency: 'EGP',
+    karat: 21,
+    source: localGoldSource,
+    // USD/EGP
+    usdEgp: {
+      price: usdEgp.price,
+      changePct: usdEgp.changePct,
+      source: egpSource
+    },
+    // Global gold (XAU/USD)
+    xauUsd: {
+      price: gold.price,
+      changePct: gold.changePct,
+      source: goldSource
+    },
+    timestamp: Date.now()
+  });
 }
