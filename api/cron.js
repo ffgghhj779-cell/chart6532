@@ -35,8 +35,9 @@ export default async function handler(req, res) {
   };
 
   const processSymbol = async (symbol) => {
-      const targetUrl = `https://chart6532.vercel.app/?symbol=${symbol}`;
-      const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(targetUrl)}&screenshot=true&meta=false&waitForTimeout=3500`;
+      const timestamp = Date.now();
+      const targetUrl = `https://chart6532.vercel.app/?symbol=${symbol}&t=${timestamp}`;
+      const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(targetUrl)}&screenshot=true&meta=false&waitForTimeout=6000&nocache=true&force=true`;
       
       let imgUrl = null;
       try {
@@ -48,7 +49,7 @@ export default async function handler(req, res) {
       }
       
       if (!imgUrl) {
-         imgUrl = `https://image.thum.io/get/width/800/crop/1200/wait/4/${targetUrl}`;
+         imgUrl = `https://image.thum.io/get/width/800/crop/1200/wait/6/noanimate/${targetUrl}`;
       }
       
       if (imgUrl) {
