@@ -545,6 +545,27 @@ export const LiveFinancialChart: React.FC = () => {
         
         let wsSymbols = symbol === 'XAUUSD' ? 'XAU/USD' : symbol === 'WTIUSD' ? 'WTI/USD' : symbol === 'USDEGP' ? 'USD/EGP' : 'XAU/USD,USD/EGP';
         
+        // ── Seed live refs from our accurate multi-source API immediately ──
+        fetch('/api/gold-price').then(r => r.json()).then(apiData => {
+          if (apiData?.usdEgp?.price > 40) {
+            // For XAUEGP: seed the USD/EGP multiplier with real market rate (Yahoo/TwelveData)
+            if (symbol === 'XAUEGP') {
+              liveMultiplierRef.current = apiData.usdEgp.price;
+            }
+            // For USDEGP: immediately show correct live price from Yahoo
+            if (symbol === 'USDEGP' && apiData.usdEgp.price > 0) {
+              handleTick(apiData.usdEgp.price);
+            }
+          }
+          // For XAUEGP: seed gold base price too
+          if (symbol === 'XAUEGP' && apiData?.xauUsd?.price > 1000) {
+            liveBaseRef.current = apiData.xauUsd.price;
+            if (liveBaseRef.current > 0 && liveMultiplierRef.current > 0) {
+              handleTick((liveBaseRef.current / 31.103) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
+            }
+          }
+        }).catch(() => {});
+        
         ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', params: { symbols: wsSymbols } }));
         ws.onmessage = (event) => {
           try {
@@ -553,10 +574,15 @@ export const LiveFinancialChart: React.FC = () => {
             
             if (symbol === 'XAUEGP') {
               if (data.symbol === 'XAU/USD') liveBaseRef.current = parseFloat(data.price);
-              if (data.symbol === 'USD/EGP') liveMultiplierRef.current = parseFloat(data.price);
+              // Only update USD/EGP multiplier from WS if it looks like market rate (>48)
+              if (data.symbol === 'USD/EGP' && parseFloat(data.price) > 48) liveMultiplierRef.current = parseFloat(data.price);
               if (liveBaseRef.current > 0 && liveMultiplierRef.current > 0) {
                  handleTick((liveBaseRef.current / 31.103) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
               }
+            } else if (symbol === 'USDEGP') {
+              const wsPrice = parseFloat(data.price);
+              // Only accept WS price if it's in realistic USD/EGP range
+              if (wsPrice > 48 && wsPrice < 80) handleTick(wsPrice);
             } else {
               handleTick(parseFloat(data.price));
             }
@@ -587,8 +613,10 @@ export const LiveFinancialChart: React.FC = () => {
 
         // Initialize Live Refs for synthetic streams to the last known close
         if (symbol === 'XAUEGP' || symbol === 'BTCEGP') {
-           // Fallback initialization just in case ws is slow
-           liveMultiplierRef.current = 48.0; // safe approx
+           // Use calibrationMultiplier as the seeded USD/EGP (already fetched from Yahoo Finance)
+           // This will be overwritten by the API seed fetch in connectWS
+           const seedUsdEgp = calibrationMultiplier > 1 ? (startPrice / calibrationMultiplier) * (24/21) * 31.103 > 0 ? calibrationMultiplier : 51.0 : 51.0;
+           liveMultiplierRef.current = seedUsdEgp;
            liveBaseRef.current = symbol === 'XAUEGP' ? startPrice / liveMultiplierRef.current * (24/21) * 31.103 : startPrice / liveMultiplierRef.current;
         }
 
