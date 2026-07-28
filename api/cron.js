@@ -11,8 +11,12 @@ export default async function handler(req, res) {
   // Load allowed IDs
   const allowedChatIds = new Set();
   
-  // Add Maaregsovereinefund group ID permanently
-  allowedChatIds.add(-1002922209855);
+  // Add Maaregsovereinefund group ID ONLY on the hour (every hour, not half hour)
+  const currentMinute = new Date().getMinutes();
+  const isHourly = currentMinute <= 15 || currentMinute >= 45;
+  if (isHourly) {
+    allowedChatIds.add(-1002922209855);
+  }
 
   if (process.env.PRIMARY_CHAT_ID) allowedChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
   if (process.env.ALLOWED_CHAT_IDS) {
