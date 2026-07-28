@@ -158,13 +158,13 @@ export default async function handler(req, res) {
   const gold   = goldGoldApi ?? goldMetals ?? goldYahooV8 ?? goldYahooV7 ?? { price: 3345, changePct: 0 };
   const usdEgp = egpTwelve ?? egpYahooV8 ?? egpYahooV7 ?? egpOpenEr ?? { price: 50.85, changePct: 0 };
 
-  // Egyptian gold: either from local site directly, or calculated
+  // Egyptian gold: calculated from XAU/USD and USD/EGP rate to match crryypp platform 100%
   const calcPrice = Math.round((gold.price / 31.1035) * usdEgp.price * (21 / 24));
-  const egyptianGoldPrice = localGoldSitePrice ?? calcPrice;
+  const egyptianGoldPrice = calcPrice;
 
   const goldSource = goldGoldApi ? 'gold-api.com' : goldMetals ? 'metals.live' : goldYahooV8 ? 'yahoo-v8(GC=F)' : goldYahooV7 ? 'yahoo-v7(GC=F)' : 'fallback';
   const egpSource  = egpTwelve ? 'twelve-data' : egpYahooV8 ? 'yahoo-v8(USDEGP=X)' : egpYahooV7 ? 'yahoo-v7(USDEGP=X)' : egpOpenEr ? 'open.er-api' : 'fallback';
-  const localGoldSource = localGoldSitePrice ? 'gold-price-today.com(direct)' : 'calculated';
+  const localGoldSource = 'calculated';
 
   return res.status(200).json({
     success: true,

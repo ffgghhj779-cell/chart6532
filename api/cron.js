@@ -10,6 +10,10 @@ export default async function handler(req, res) {
 
   // Load allowed IDs
   const allowedChatIds = new Set();
+  
+  // Add Maaregsovereinefund group ID permanently
+  allowedChatIds.add(-1002922209855);
+
   if (process.env.PRIMARY_CHAT_ID) allowedChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
   if (process.env.ALLOWED_CHAT_IDS) {
     const ids = process.env.ALLOWED_CHAT_IDS.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));

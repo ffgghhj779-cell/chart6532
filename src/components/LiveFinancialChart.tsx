@@ -136,10 +136,10 @@ const getHistoricalData = async (symbol: SymbolType, timeframe: string) => {
         const u = usdRaw[i] || usdRaw[usdRaw.length - 1];
         return {
           time: (new Date(g.datetime).getTime()/1000) as Time,
-          open: (parseFloat(g.open) / 31.103) * (21/24) * parseFloat(u.open),
-          high: (parseFloat(g.high) / 31.103) * (21/24) * parseFloat(u.high),
-          low: (parseFloat(g.low) / 31.103) * (21/24) * parseFloat(u.low),
-          close: (parseFloat(g.close) / 31.103) * (21/24) * parseFloat(u.close),
+          open: (parseFloat(g.open) / 31.1035) * (21/24) * parseFloat(u.open),
+          high: (parseFloat(g.high) / 31.1035) * (21/24) * parseFloat(u.high),
+          low: (parseFloat(g.low) / 31.1035) * (21/24) * parseFloat(u.low),
+          close: (parseFloat(g.close) / 31.1035) * (21/24) * parseFloat(u.close),
           volume: g.volume ? parseFloat(g.volume) : 100
         };
       });
@@ -561,7 +561,7 @@ export const LiveFinancialChart: React.FC = () => {
           if (symbol === 'XAUEGP' && apiData?.xauUsd?.price > 1000) {
             liveBaseRef.current = apiData.xauUsd.price;
             if (liveBaseRef.current > 0 && liveMultiplierRef.current > 0) {
-              handleTick((liveBaseRef.current / 31.103) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
+              handleTick((liveBaseRef.current / 31.1035) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
             }
           }
         }).catch(() => {});
@@ -577,7 +577,7 @@ export const LiveFinancialChart: React.FC = () => {
               // Only update USD/EGP multiplier from WS if it looks like market rate (>48)
               if (data.symbol === 'USD/EGP' && parseFloat(data.price) > 48) liveMultiplierRef.current = parseFloat(data.price);
               if (liveBaseRef.current > 0 && liveMultiplierRef.current > 0) {
-                 handleTick((liveBaseRef.current / 31.103) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
+                 handleTick((liveBaseRef.current / 31.1035) * (21/24) * liveMultiplierRef.current * calibrationMultiplier);
               }
             } else if (symbol === 'USDEGP') {
               const wsPrice = parseFloat(data.price);
@@ -617,7 +617,7 @@ export const LiveFinancialChart: React.FC = () => {
            // This will be overwritten by the API seed fetch in connectWS
            const seedUsdEgp = calibrationMultiplier > 1 ? (startPrice / calibrationMultiplier) * (24/21) * 31.103 > 0 ? calibrationMultiplier : 51.0 : 51.0;
            liveMultiplierRef.current = seedUsdEgp;
-           liveBaseRef.current = symbol === 'XAUEGP' ? startPrice / liveMultiplierRef.current * (24/21) * 31.103 : startPrice / liveMultiplierRef.current;
+           liveBaseRef.current = symbol === 'XAUEGP' ? startPrice / liveMultiplierRef.current * (24/21) * 31.1035 : startPrice / liveMultiplierRef.current;
         }
 
         // Calculate true daily pivot using previous day's H/L/C
