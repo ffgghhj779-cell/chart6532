@@ -1,4 +1,9 @@
 export default async function handler(req, res) {
+  // ─── KILL SWITCH: Set SERVICE_ACTIVE=false in Vercel env to stop everything ───
+  if (process.env.SERVICE_ACTIVE === 'false') {
+    return res.status(200).send('Service is currently suspended.');
+  }
+
   // Use PRIMARY_CHAT_ID as a simple secret key to prevent unauthorized execution
   const cronSecret = process.env.PRIMARY_CHAT_ID;
   if (!cronSecret || req.query.key !== cronSecret) {
@@ -8,20 +13,22 @@ export default async function handler(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return res.status(500).send('TELEGRAM_BOT_TOKEN is missing');
 
-  // Load allowed IDs
+  // Load allowed IDs — ONLY the owner's personal chat, no groups
   const allowedChatIds = new Set();
-  
-  // Add Maaregsovereinefund group ID ONLY on the hour (every hour, not half hour)
-  const currentMinute = new Date().getMinutes();
-  const isHourly = currentMinute <= 15 || currentMinute >= 45;
-  if (isHourly) {
-    allowedChatIds.add(-1002922209855);
-  }
 
   if (process.env.PRIMARY_CHAT_ID) allowedChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
   if (process.env.ALLOWED_CHAT_IDS) {
     const ids = process.env.ALLOWED_CHAT_IDS.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
     ids.forEach(id => allowedChatIds.add(id));
+  }
+
+  // ─── GROUP DELIVERY: Add group only if GROUP_ACTIVE=true in Vercel env ───
+  if (process.env.GROUP_ACTIVE === 'true') {
+    const currentMinute = new Date().getMinutes();
+    const isHourly = currentMinute <= 15 || currentMinute >= 45;
+    if (isHourly) {
+      allowedChatIds.add(-1002922209855);
+    }
   }
   
   if (allowedChatIds.size === 0) return res.status(200).send('No users configured');
