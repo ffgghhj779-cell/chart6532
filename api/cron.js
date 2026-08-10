@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return res.status(500).send('TELEGRAM_BOT_TOKEN is missing');
 
-  // Load allowed IDs — ONLY the owner's personal chat, no groups
+  // Load allowed IDs
   const allowedChatIds = new Set();
 
   if (process.env.PRIMARY_CHAT_ID) allowedChatIds.add(parseInt(process.env.PRIMARY_CHAT_ID, 10));
@@ -22,13 +22,11 @@ export default async function handler(req, res) {
     ids.forEach(id => allowedChatIds.add(id));
   }
 
-  // ─── GROUP DELIVERY: Add group only if GROUP_ACTIVE=true in Vercel env ───
-  if (process.env.GROUP_ACTIVE === 'true') {
-    const currentMinute = new Date().getMinutes();
-    const isHourly = currentMinute <= 15 || currentMinute >= 45;
-    if (isHourly) {
-      allowedChatIds.add(-1002922209855);
-    }
+  // Add Maaregsovereinefund group ONLY on the hour (every hour, not half hour)
+  const currentMinute = new Date().getMinutes();
+  const isHourly = currentMinute <= 15 || currentMinute >= 45;
+  if (isHourly) {
+    allowedChatIds.add(-1002922209855);
   }
   
   if (allowedChatIds.size === 0) return res.status(200).send('No users configured');
