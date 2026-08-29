@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
   // Check Authorization
   if (!allowedChatIds.has(chatId) && allowedChatIds.size > 0) {
-    await sendMessage(chatId, '❌ عذراً، غير مصرح لك باستخدام هذا البوت.');
+    await sendMessage(chatId, `❌ عذراً، غير مصرح لك باستخدام هذا البوت.\n\nالمعرف الخاص بك (ID) هو:\n\`${chatId}\`\n\nقم بنسخ الرقم وأرسله لمدير النظام لإضافتك لقائمة المسموح لهم.`);
     return res.status(200).send('Unauthorized');
   }
 
