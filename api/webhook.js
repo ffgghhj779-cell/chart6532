@@ -1,4 +1,7 @@
 export default async function handler(req, res) {
+  if (process.env.SERVICE_ACTIVE === 'false') {
+    return res.status(200).send('Service suspended');
+  }
   // Allow only POST requests from Telegram
   if (req.method !== 'POST') {
     return res.status(200).send('Telegram Webhook is Active! 🚀');

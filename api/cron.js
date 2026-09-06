@@ -1,4 +1,8 @@
 export default async function handler(req, res) {
+  if (process.env.SERVICE_ACTIVE === 'false') {
+    return res.status(200).send('Service is temporarily suspended');
+  }
+
   // ─── KILL SWITCH: Set SERVICE_ACTIVE=false in Vercel env to stop everything ───
   if (process.env.SERVICE_ACTIVE === 'false') {
     return res.status(200).send('Service is currently suspended.');
